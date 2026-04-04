@@ -1,6 +1,6 @@
 import { AgentConfig } from './agentTypes'
 
-const MODEL = 'google/gemini-2.0-flash-lite'
+const MODEL = 'google/gemini-2.0-flash-lite-001'
 
 const BASE_RULES = `
 You control an RTS game. Map: 48×48 tiles. Win by destroying the enemy Town Hall.

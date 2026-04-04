@@ -142,6 +142,7 @@ export interface Worker {
   attackCount: number
   // three.js
   mesh: THREE.Mesh
+  animMixer: THREE.AnimationMixer | null
   selectionRing: THREE.Mesh
   carryIndicator: THREE.Mesh
   hpFill: THREE.Mesh

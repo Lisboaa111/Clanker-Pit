@@ -8,6 +8,8 @@ import { createGameLoop } from '../game/gameLoop'
 import { createInputSystem } from '../game/input'
 import { AgentRunner } from '../agent/runner'
 import { AgentConfig, HUMAN_PLAYER, PlayerMode } from '../agent/agentTypes'
+import { loadCharacterAssets } from '../three/characterLoader'
+import { setCharacterAssets } from '../three/meshes'
 
 interface Props {
   p0Mode: PlayerMode
@@ -18,90 +20,111 @@ interface Props {
 export function GameView({ p0Mode, p1Mode, apiKey }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [agentStatus, setAgentStatus] = useState<Record<number, string>>({})
+  const [assetsLoading, setAssetsLoading] = useState(true)
 
   useEffect(() => {
     const canvas = canvasRef.current!
+    let stopped = false
+    let cleanupFns: Array<() => void> = []
 
-    const scene    = createScene()
-    const renderer = createRenderer(canvas)
-    const camCtrl  = createCamera(window.innerWidth / window.innerHeight)
-    const state    = initGameState(scene)
+    ;(async () => {
+      // Load Kenney FBX characters before spawning any units
+      const assets = await loadCharacterAssets()
+      if (stopped) return
+      setCharacterAssets(assets)
+      setAssetsLoading(false)
 
-    // Expose for minimap, damage numbers & debugging
-    ;(window as any).__gameState = state
-    ;(window as any).__camera = camCtrl.camera
+      const scene    = createScene()
+      const renderer = createRenderer(canvas)
+      const camCtrl  = createCamera(window.innerWidth / window.innerHeight)
+      const state    = initGameState(scene)
 
-    const getPickTargets = (): THREE.Object3D[] => {
-      const targets: THREE.Object3D[] = []
-      state.map.forEach(row => row.forEach(tile => targets.push(tile.mesh)))
-      state.workers.forEach(w => { if (!w.dead) targets.push(w.mesh) })
-      state.buildings.forEach(b => { if (!b.destroyed) targets.push(b.mesh as unknown as THREE.Object3D) })
-      return targets
-    }
+      // Expose for minimap, damage numbers & debugging
+      ;(window as any).__gameState = state
+      ;(window as any).__camera = camCtrl.camera
 
-    // For agent players, disable mouse input control for their player
-    const agentPlayerIds = new Set<number>()
-    if (p0Mode !== HUMAN_PLAYER) agentPlayerIds.add(0)
-    if (p1Mode !== HUMAN_PLAYER) agentPlayerIds.add(1)
+      const getPickTargets = (): THREE.Object3D[] => {
+        const targets: THREE.Object3D[] = []
+        state.map.forEach(row => row.forEach(tile => targets.push(tile.mesh)))
+        state.workers.forEach(w => { if (!w.dead) targets.push(w.mesh) })
+        state.buildings.forEach(b => { if (!b.destroyed) targets.push(b.mesh as unknown as THREE.Object3D) })
+        return targets
+      }
 
-    const input = createInputSystem(canvas, camCtrl.camera, scene, () => state, getPickTargets)
+      // For agent players, disable mouse input control for their player
+      const agentPlayerIds = new Set<number>()
+      if (p0Mode !== HUMAN_PLAYER) agentPlayerIds.add(0)
+      if (p1Mode !== HUMAN_PLAYER) agentPlayerIds.add(1)
 
-    canvas.addEventListener('wheel', (e) => { e.preventDefault(); camCtrl.onWheel(e) }, { passive: false })
+      const input = createInputSystem(canvas, camCtrl.camera, scene, () => state, getPickTargets)
 
-    const loop = createGameLoop(scene, renderer, camCtrl, state, input)
-    loop.start()
+      const onWheel = (e: WheelEvent) => { e.preventDefault(); camCtrl.onWheel(e) }
+      canvas.addEventListener('wheel', onWheel, { passive: false })
 
-    // Start agent runners
-    const runners: AgentRunner[] = []
+      const loop = createGameLoop(scene, renderer, camCtrl, state, input)
+      loop.start()
 
-    const modes: [number, PlayerMode][] = [[0, p0Mode], [1, p1Mode]]
-    for (const [pid, mode] of modes) {
-      if (mode === HUMAN_PLAYER) continue
-      const cfg = mode as AgentConfig
-      const runner = new AgentRunner(cfg, pid, apiKey)
-      runner.start(state)
-      runners.push(runner)
-    }
+      // Start agent runners
+      const runners: AgentRunner[] = []
+      const modes: [number, PlayerMode][] = [[0, p0Mode], [1, p1Mode]]
+      for (const [pid, mode] of modes) {
+        if (mode === HUMAN_PLAYER) continue
+        const cfg = mode as AgentConfig
+        const runner = new AgentRunner(cfg, pid, apiKey)
+        runner.start(state)
+        runners.push(runner)
+      }
 
-    // Listen for agent thinking events to update UI
-    const onAgentThinking = (e: Event) => {
-      const { playerId, reasoning, agentName } = (e as CustomEvent<{
-        playerId: number; reasoning: string; agentName: string
-      }>).detail
-      setAgentStatus(prev => ({ ...prev, [playerId]: `${agentName}: ${reasoning}` }))
-    }
-    window.addEventListener('agent-thinking', onAgentThinking)
+      // Listen for agent thinking events to update UI
+      const onAgentThinking = (e: Event) => {
+        const { playerId, reasoning, agentName } = (e as CustomEvent<{
+          playerId: number; reasoning: string; agentName: string
+        }>).detail
+        setAgentStatus(prev => ({ ...prev, [playerId]: `${agentName}: ${reasoning}` }))
+      }
+      window.addEventListener('agent-thinking', onAgentThinking)
 
-    // If both players are agents, keep currentPlayerId = 0 (doesn't matter, both controlled by runners)
-    if (p0Mode === HUMAN_PLAYER && p1Mode !== HUMAN_PLAYER) {
-      state.currentPlayerId = 0  // human is p0
-    } else if (p0Mode !== HUMAN_PLAYER && p1Mode === HUMAN_PLAYER) {
-      state.currentPlayerId = 1  // human is p1
-    } else if (p0Mode !== HUMAN_PLAYER && p1Mode !== HUMAN_PLAYER) {
-      state.currentPlayerId = 0  // both agents, doesn't matter
-    }
+      // If both players are agents, keep currentPlayerId = 0 (doesn't matter, both controlled by runners)
+      if (p0Mode === HUMAN_PLAYER && p1Mode !== HUMAN_PLAYER) {
+        state.currentPlayerId = 0  // human is p0
+      } else if (p0Mode !== HUMAN_PLAYER && p1Mode === HUMAN_PLAYER) {
+        state.currentPlayerId = 1  // human is p1
+      } else if (p0Mode !== HUMAN_PLAYER && p1Mode !== HUMAN_PLAYER) {
+        state.currentPlayerId = 0  // both agents, doesn't matter
+      }
 
-    const onResize = () => {
-      renderer.setSize(window.innerWidth, window.innerHeight)
-      camCtrl.camera.aspect = window.innerWidth / window.innerHeight
-      camCtrl.camera.updateProjectionMatrix()
-    }
-    window.addEventListener('resize', onResize)
+      const onResize = () => {
+        renderer.setSize(window.innerWidth, window.innerHeight)
+        camCtrl.camera.aspect = window.innerWidth / window.innerHeight
+        camCtrl.camera.updateProjectionMatrix()
+      }
+      window.addEventListener('resize', onResize)
+
+      cleanupFns = [
+        () => runners.forEach(r => r.stop()),
+        () => loop.stop(),
+        () => input.destroy(),
+        () => canvas.removeEventListener('wheel', onWheel),
+        () => window.removeEventListener('resize', onResize),
+        () => window.removeEventListener('agent-thinking', onAgentThinking),
+        () => renderer.dispose(),
+        () => { (window as any).__gameState = null; (window as any).__camera = null },
+      ]
+    })()
 
     return () => {
-      runners.forEach(r => r.stop())
-      loop.stop()
-      input.destroy()
-      window.removeEventListener('resize', onResize)
-      window.removeEventListener('agent-thinking', onAgentThinking)
-      renderer.dispose()
-      ;(window as any).__gameState = null
-      ;(window as any).__camera = null
+      stopped = true
+      cleanupFns.forEach(fn => fn())
     }
   }, []) // intentionally no deps — game init is one-shot
 
   return (
     <>
+      {assetsLoading && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black text-white text-lg font-mono tracking-widest">
+          Loading characters…
+        </div>
+      )}
       <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
 
       {/* Agent status overlay */}

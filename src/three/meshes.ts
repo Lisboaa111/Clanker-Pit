@@ -8,6 +8,17 @@ import {
   TOWN_HALL_HP_BAR_WIDTH, BARRACKS_HP_BAR_WIDTH, FARM_HP_BAR_WIDTH, TOWER_HP_BAR_WIDTH,
 } from '../game/constants'
 import { ResourceType } from '../game/types'
+import { CharacterAssets, cloneCharacter, createCharacterMixer } from './characterLoader'
+
+// ── Loaded character assets (set once before game start) ─────────────────────
+let _charAssets: CharacterAssets | null = null
+export function setCharacterAssets(assets: CharacterAssets) { _charAssets = assets }
+
+// Skin selection: P0 = survivors, P1 = zombies
+function pickTexture(assets: CharacterAssets, playerId: number, isHeavy: boolean) {
+  if (playerId === 0) return isHeavy ? assets.textures.survivorMaleB : assets.textures.survivorFemaleA
+  return isHeavy ? assets.textures.zombieC : assets.textures.zombieA
+}
 
 // ── Shared geometries ─────────────────────────────────────────────────────────
 const workerGeo       = new THREE.BoxGeometry(WORKER_SIZE, WORKER_SIZE, WORKER_SIZE)
@@ -50,46 +61,69 @@ const goldMineAlt  = new THREE.MeshLambertMaterial({ color: COLOR_GOLD_DARK })
 const hpBgMat      = new THREE.MeshBasicMaterial({ color: 0x330000 })
 const hpFillMat    = new THREE.MeshBasicMaterial({ color: 0x00cc44 })
 
-// ── Worker mesh ───────────────────────────────────────────────────────────────
-export function makeWorkerMesh(playerId: number): THREE.Mesh {
-  const mat = new THREE.MeshLambertMaterial({ color: PLAYER_COLORS[playerId] ?? PLAYER_COLORS[0] })
-  const mesh = new THREE.Mesh(workerGeo, mat)
+// ── Character mesh factory (FBX or fallback box) ────────────────────────────
+function makeUnitMesh(
+  playerId: number,
+  isHeavy: boolean,
+  fallbackColor: number,
+  fallbackGeo: THREE.BufferGeometry,
+  fallbackY: number,
+): THREE.Mesh {
+  if (_charAssets) {
+    const tex       = pickTexture(_charAssets, playerId, isHeavy)
+    const character = cloneCharacter(_charAssets, tex)
+    const container = new THREE.Group()
+    container.add(character)
+
+    // Store mixer + actions in userData for the game loop to drive
+    const { mixer, actions } = createCharacterMixer(character, _charAssets.clips)
+    container.userData.animMixer  = mixer
+    container.userData.animActions = actions
+    container.userData.currentAnim = 'idle'
+
+    // Player colour tint ring at foot level — subtle team indicator
+    const ringGeo = new THREE.RingGeometry(0.25, 0.35, 20)
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: PLAYER_COLORS[playerId],
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.55,
+    })
+    const ring = new THREE.Mesh(ringGeo, ringMat)
+    ring.rotation.x = -Math.PI / 2
+    ring.position.y = 0.02
+    container.add(ring)
+
+    return container as unknown as THREE.Mesh
+  }
+
+  // Fallback: coloured box (assets not yet loaded)
+  const mat  = new THREE.MeshLambertMaterial({ color: fallbackColor })
+  const mesh = new THREE.Mesh(fallbackGeo, mat)
   mesh.castShadow = true
-  mesh.position.y = WORKER_SIZE / 2 + 0.08
+  mesh.position.y = fallbackY
   return mesh
 }
 
-// ── Footman mesh (heavy melee — taller with spike) ────────────────────────────
-export function makeFootmanMesh(playerId: number): THREE.Mesh {
-  const color = PLAYER_COLORS[playerId] ?? PLAYER_COLORS[0]
-  const mat   = new THREE.MeshLambertMaterial({ color })
-  const body  = new THREE.Mesh(footmanBodyGeo, mat)
-  body.castShadow = true
-  body.position.y = FOOTMAN_SIZE * 0.7 + 0.08
-
-  const spikeMat = new THREE.MeshLambertMaterial({ color: Math.max(0, color - 0x222222) })
-  const spike    = new THREE.Mesh(footmanSpikeGeo, spikeMat)
-  spike.position.y = FOOTMAN_SIZE * 1.4 + FOOTMAN_SIZE * 0.25
-  body.add(spike)
-  return body
+// ── Worker mesh ───────────────────────────────────────────────────────────────
+export function makeWorkerMesh(playerId: number): THREE.Mesh {
+  return makeUnitMesh(playerId, false,
+    PLAYER_COLORS[playerId] ?? PLAYER_COLORS[0],
+    workerGeo, WORKER_SIZE / 2 + 0.08)
 }
 
-// ── Archer mesh (slim with horizontal bow) ────────────────────────────────────
-export function makeArcherMesh(playerId: number): THREE.Mesh {
-  const color = PLAYER_COLORS[playerId] ?? PLAYER_COLORS[0]
-  // Lighter/brighter shade for archer
-  const archerColor = blendColor(color, 0xffffff, 0.25)
-  const mat  = new THREE.MeshLambertMaterial({ color: archerColor })
-  const body = new THREE.Mesh(archerBodyGeo, mat)
-  body.castShadow = true
-  body.position.y = ARCHER_SIZE * 0.65 + 0.08
+// ── Footman mesh ──────────────────────────────────────────────────────────────
+export function makeFootmanMesh(playerId: number): THREE.Mesh {
+  return makeUnitMesh(playerId, true,
+    PLAYER_COLORS[playerId] ?? PLAYER_COLORS[0],
+    footmanBodyGeo, FOOTMAN_SIZE * 0.7 + 0.08)
+}
 
-  // Bow: thin horizontal bar sticking out front
-  const bowMat = new THREE.MeshLambertMaterial({ color: 0x8B4513 })
-  const bow    = new THREE.Mesh(archerBowGeo, bowMat)
-  bow.position.set(0, ARCHER_SIZE * 0.3, ARCHER_SIZE * 0.55)
-  body.add(bow)
-  return body
+// ── Archer mesh ───────────────────────────────────────────────────────────────
+export function makeArcherMesh(playerId: number): THREE.Mesh {
+  return makeUnitMesh(playerId, false,
+    blendColor(PLAYER_COLORS[playerId] ?? PLAYER_COLORS[0], 0xffffff, 0.25),
+    archerBodyGeo, ARCHER_SIZE * 0.65 + 0.08)
 }
 
 // ── Selection ring ────────────────────────────────────────────────────────────

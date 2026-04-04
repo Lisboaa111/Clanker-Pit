@@ -77,6 +77,7 @@ function baseUnit(
     deathAnimTimer: 0,
     dead: false,
     mesh, selectionRing: ring, carryIndicator: carry, hpFill,
+    animMixer: (mesh as any).userData?.animMixer ?? null,
     pathLine: null, selected: false,
     xp: 0,
     level: 1,

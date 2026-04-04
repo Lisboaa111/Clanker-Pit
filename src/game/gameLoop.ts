@@ -27,6 +27,26 @@ import {
 } from './constants'
 import type { InputSystem } from './input'
 import type { CameraController } from '../three/camera'
+import { setCharacterAnim } from '../three/characterLoader'
+
+// ── Animation state helpers ───────────────────────────────────────────────────
+const MOVING_STATES = new Set(['MOVING_TO_TARGET','MOVING_TO_RESOURCE','MOVING_TO_TOWNHALL','DEPOSITING','MOVING_TO_ATTACK'])
+const ACTION_STATES = new Set(['ATTACKING','BUILDING','GATHERING'])
+
+function tickUnitAnims(workers: GameState['workers'], dt: number) {
+  for (const w of workers) {
+    if (!w.animMixer) continue
+    w.animMixer.update(dt)
+    const actions = (w.mesh as any).userData?.animActions
+    if (!actions) continue
+    const desired = ACTION_STATES.has(w.state) ? 'jump' : MOVING_STATES.has(w.state) ? 'run' : 'idle'
+    const current = (w.mesh as any).userData?.currentAnim
+    if (desired !== current) {
+      setCharacterAnim(actions, desired)
+      ;(w.mesh as any).userData.currentAnim = desired
+    }
+  }
+}
 
 export interface GameLoop {
   start: () => void
@@ -190,8 +210,9 @@ export function createGameLoop(
       processCmd(command, playerId)
     }
 
-    // ── Update workers (collect projectile requests) ───────────────────────
+    // ── Update workers (collect projectile requests) + drive animations ───
     const projRequests = state.workers.flatMap(w => updateWorker(w, dt, state, scene))
+    tickUnitAnims(state.workers, dt)
 
     projRequests.forEach(req => {
       state.projectiles.push(createProjectile(req, scene))

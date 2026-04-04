@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:hackathon.openwallet.sh)",
+      "WebFetch(domain:openwallet.sh)",
+      "WebSearch",
+      "WebFetch(domain:www.moonpay.com)",
+      "WebFetch(domain:www.prnewswire.com)",
+      "WebFetch(domain:github.com)",
+      "Bash(npm create:*)",
+      "Bash(npx create-vite:*)",
+      "Bash(npx tsc:*)",
+      "Bash(curl -s http://localhost:5173)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5173)",
+      "Bash(npx vite:*)",
+      "Bash(npm run:*)"
+    ]
+  }
+}

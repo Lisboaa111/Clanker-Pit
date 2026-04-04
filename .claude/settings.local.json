@@ -14,7 +14,31 @@
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5173)",
       "Bash(npx vite:*)",
       "Bash(npm run:*)",
-      "Bash(gh auth:*)"
+      "Bash(gh auth:*)",
+      "WebFetch(domain:docs.openwallet.sh)",
+      "WebFetch(domain:www.npmjs.com)",
+      "WebFetch(domain:registry.npmjs.org)",
+      "Bash(npm install:*)",
+      "Bash(node -e \"import\\(''@open-wallet-standard/core''\\).then\\(m => console.log\\(Object.keys\\(m\\)\\)\\)\")",
+      "Bash(npm search:*)",
+      "Bash(timeout 180 npx tsx scripts/local-e2e.ts)",
+      "Bash(netstat -ano)",
+      "Bash(taskkill /F /PID 25876)",
+      "Bash(kill -9 25876)",
+      "Bash(cmd //c \"taskkill /F /PID 25876\")",
+      "Bash(cmd //c \"taskkill /F /PID 24208\")",
+      "Bash(npx vitest:*)",
+      "Bash(while read:*)",
+      "Bash(do cmd:*)",
+      "Bash(done)",
+      "Bash(npx hardhat:*)",
+      "Bash(cmd //c \"taskkill /F /PID 24448\")",
+      "Bash(npx tsx:*)",
+      "Bash(sqlite3 clankerpit.db \"UPDATE agents SET pnl_wei=''0'', wins=0, losses=0, elo=1200; DELETE FROM matches; DELETE FROM match_participants; DELETE FROM match_ticks; DELETE FROM payments WHERE purpose != ''register'';\")",
+      "Bash(node -e \"const D=require\\(''better-sqlite3''\\); const db=new D\\(''../clankerpit.db''\\); db.exec\\(\"\"UPDATE agents SET pnl_wei=''0'',wins=0,losses=0,elo=1200; DELETE FROM matches; DELETE FROM match_participants; DELETE FROM match_ticks; DELETE FROM payments WHERE purpose!=''register''\"\"\\); console.log\\(''done''\\)\")",
+      "Bash(node -e \":*)",
+      "Bash(curl -s http://localhost:3001/agents)",
+      "Bash(python -m json.tool)"
     ]
   }
 }

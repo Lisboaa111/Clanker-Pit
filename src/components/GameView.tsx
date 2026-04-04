@@ -12,14 +12,18 @@ import { loadCharacterAssets } from '../three/characterLoader'
 import { loadSurvivalKitAssets } from '../three/survivalKitLoader'
 import { setCharacterAssets, setSurvivalKitAssets } from '../three/meshes'
 import { scatterMapDecoration } from '../three/mapDecoration'
+import { serializeState } from '../agent/serializer'
+
+const BACKEND = 'http://localhost:3001'
 
 interface Props {
   p0Mode: PlayerMode
   p1Mode: PlayerMode
   apiKey: string
+  matchId?: string
 }
 
-export function GameView({ p0Mode, p1Mode, apiKey }: Props) {
+export function GameView({ p0Mode, p1Mode, apiKey, matchId }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [agentStatus, setAgentStatus] = useState<Record<number, string>>({})
   const [assetsLoading, setAssetsLoading] = useState(true)
@@ -73,15 +77,15 @@ export function GameView({ p0Mode, p1Mode, apiKey }: Props) {
       const loop = createGameLoop(scene, renderer, camCtrl, state, input)
       loop.start()
 
-      // Start agent runners
-      const runners: AgentRunner[] = []
+      // Start agent runners (keyed by playerId for easy reasoning access)
+      const runnerMap = new Map<number, AgentRunner>()
       const modes: [number, PlayerMode][] = [[0, p0Mode], [1, p1Mode]]
       for (const [pid, mode] of modes) {
         if (mode === HUMAN_PLAYER) continue
         const cfg = mode as AgentConfig
         const runner = new AgentRunner(cfg, pid, apiKey)
         runner.start(state)
-        runners.push(runner)
+        runnerMap.set(pid, runner)
       }
 
       // Listen for agent thinking events to update UI
@@ -109,13 +113,53 @@ export function GameView({ p0Mode, p1Mode, apiKey }: Props) {
       }
       window.addEventListener('resize', onResize)
 
+      // Push game state to backend every 500ms for external agents + replay recording
+      let pushIntervalId: ReturnType<typeof setInterval> | null = null
+      if (matchId) {
+        pushIntervalId = setInterval(() => {
+          if (stopped) return
+          try {
+            const snap0 = serializeState(state, 0)
+            const snap1 = serializeState(state, 1)
+            const reasoning0 = runnerMap.get(0)?.lastReasoning ?? undefined
+            const reasoning1 = runnerMap.get(1)?.lastReasoning ?? undefined
+            fetch(`${BACKEND}/game/state`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ matchId, tick: state.tick, playerId: 0, stateJson: JSON.stringify(snap0), reasoning: reasoning0 }),
+            }).catch(() => {})
+            fetch(`${BACKEND}/game/state`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ matchId, tick: state.tick, playerId: 1, stateJson: JSON.stringify(snap1), reasoning: reasoning1 }),
+            }).catch(() => {})
+          } catch {}
+        }, 500)
+      }
+
+      // On game-over, settle the match in the backend
+      const onGameOver = (e: Event) => {
+        if (!matchId) return
+        const { winnerId } = (e as CustomEvent<{ winnerId: number }>).detail
+        // Derive winner agent ID from player index (convention: stored in state or passed via props)
+        // For now we use the player index as agentId so the backend can look it up
+        fetch(`${BACKEND}/match/${matchId}/settle`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ winnerId: String(winnerId), durationTicks: state.tick }),
+        }).catch(() => {})
+      }
+      window.addEventListener('game-over', onGameOver)
+
       cleanupFns = [
-        () => runners.forEach(r => r.stop()),
+        () => runnerMap.forEach(r => r.stop()),
         () => loop.stop(),
         () => input.destroy(),
         () => canvas.removeEventListener('wheel', onWheel),
         () => window.removeEventListener('resize', onResize),
         () => window.removeEventListener('agent-thinking', onAgentThinking),
+        () => window.removeEventListener('game-over', onGameOver),
+        () => { if (pushIntervalId) clearInterval(pushIntervalId) },
         () => renderer.dispose(),
         () => { (window as any).__gameState = null; (window as any).__camera = null },
       ]

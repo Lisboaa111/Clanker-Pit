@@ -27,7 +27,7 @@ async function callOpenRouter(
           { role: 'user',   content: JSON.stringify(context) },
         ],
         max_tokens: 1024,
-        temperature: 0.2,
+        temperature: 0.3,
       }),
     })
 
@@ -39,9 +39,19 @@ async function callOpenRouter(
     const data = await res.json()
     const text = data.choices?.[0]?.message?.content ?? ''
 
-    // Strip accidental markdown fences if model ignores instructions
-    const cleaned = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim()
-    const parsed = JSON.parse(cleaned) as AgentDecision
+    if (!text) {
+      console.warn('[Agent] Empty response from model')
+      return null
+    }
+
+    // Strip accidental markdown fences if model ignores json_object instruction
+    const jsonMatch = text.match(/\{[\s\S]*\}/)
+    if (!jsonMatch) {
+      console.warn('[Agent] No JSON object found in response:', text.slice(0, 200))
+      return null
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]) as AgentDecision
 
     if (!Array.isArray(parsed.commands)) {
       console.warn('[Agent] Response missing commands array:', parsed)
@@ -49,7 +59,7 @@ async function callOpenRouter(
     }
     return parsed
   } catch (e) {
-    console.warn('[Agent] Failed to parse response', e)
+    console.warn('[Agent] Failed to call/parse OpenRouter response:', e)
     return null
   }
 }
@@ -63,9 +73,9 @@ function translateCommand(raw: AgentCommandRaw, state: GameState, playerId: numb
   const myBuildingIds = new Set(
     state.buildings.filter(b => b.playerId === playerId && !b.destroyed).map(b => b.id),
   )
-  const resourceIds       = new Set(state.resources.filter(r => !r.depleted).map(r => r.id))
-  const enemyUnitIds      = new Set(state.workers.filter(w => w.playerId !== playerId && !w.dead).map(w => w.id))
-  const enemyBuildingIds  = new Set(state.buildings.filter(b => b.playerId !== playerId && !b.destroyed).map(b => b.id))
+  const resourceIds      = new Set(state.resources.filter(r => !r.depleted).map(r => r.id))
+  const enemyUnitIds     = new Set(state.workers.filter(w => w.playerId !== playerId && !w.dead).map(w => w.id))
+  const enemyBuildingIds = new Set(state.buildings.filter(b => b.playerId !== playerId && !b.destroyed).map(b => b.id))
 
   switch (raw.type) {
     case 'MOVE': {
@@ -75,8 +85,8 @@ function translateCommand(raw: AgentCommandRaw, state: GameState, playerId: numb
     }
     case 'GATHER': {
       const ids = raw.unitIds.filter(id => myUnitIds.has(id))
-      if (!ids.length) { console.warn('[Agent] GATHER: no valid unitIds'); return null }
-      if (!resourceIds.has(raw.resourceId)) { console.warn('[Agent] GATHER: resourceId not found:', raw.resourceId); return null }
+      if (!ids.length) { console.warn('[Agent] GATHER: no valid unitIds in', raw.unitIds, '| valid:', [...myUnitIds].slice(0,5)); return null }
+      if (!resourceIds.has(raw.resourceId)) { console.warn('[Agent] GATHER: resourceId not found:', raw.resourceId, '| valid:', [...resourceIds].slice(0,5)); return null }
       return { type: CommandType.GATHER_RESOURCE, workerIds: ids, resourceId: raw.resourceId }
     }
     case 'ATTACK': {
@@ -87,7 +97,7 @@ function translateCommand(raw: AgentCommandRaw, state: GameState, playerId: numb
     }
     case 'ATTACK_BUILDING': {
       const ids = raw.unitIds.filter(id => myUnitIds.has(id))
-      if (!ids.length) { console.warn('[Agent] ATTACK_BUILDING: no valid unitIds'); return null }
+      if (!ids.length) { console.warn('[Agent] ATTACK_BUILDING: no valid unitIds in', raw.unitIds); return null }
       if (!enemyBuildingIds.has(raw.targetId)) { console.warn('[Agent] ATTACK_BUILDING: building not found:', raw.targetId, '| valid:', [...enemyBuildingIds]); return null }
       return { type: CommandType.ATTACK_BUILDING, workerIds: ids, targetBuildingId: raw.targetId }
     }
@@ -97,7 +107,7 @@ function translateCommand(raw: AgentCommandRaw, state: GameState, playerId: numb
       return { type: CommandType.ATTACK_MOVE, workerIds: ids, tileX: raw.tx, tileZ: raw.tz }
     }
     case 'TRAIN': {
-      if (!myBuildingIds.has(raw.buildingId)) { console.warn('[Agent] TRAIN: buildingId not found:', raw.buildingId); return null }
+      if (!myBuildingIds.has(raw.buildingId)) { console.warn('[Agent] TRAIN: buildingId not found:', raw.buildingId, '| valid:', [...myBuildingIds]); return null }
       const unitTypeMap: Record<string, UnitType> = {
         Worker:  UnitType.WORKER,
         Footman: UnitType.FOOTMAN,
@@ -137,7 +147,6 @@ export class AgentRunner {
   private isPending = false
   private intervalId: ReturnType<typeof setInterval> | null = null
   private stateRef: GameState | null = null
-  private lastContextHash = ''
   public lastReasoning = ''
   public lastCommandCount = 0
   public isRunning = false
@@ -171,18 +180,16 @@ export class AgentRunner {
 
     this.isPending = true
     try {
-      const context  = serializeState(this.stateRef, this.playerId)
-      const ctxStr   = JSON.stringify(context)
+      let context: object
+      try {
+        context = serializeState(this.stateRef, this.playerId)
+      } catch (serErr) {
+        console.error(`[Agent P${this.playerId}] serializeState crashed:`, serErr)
+        return
+      }
 
-      // Skip API call if nothing meaningful changed (same tick bracket)
-      // But always call if urgentAction is set
       const ctx = context as any
-      const hasUrgent = ctx.situation?.urgentAction && ctx.situation.urgentAction !== 'none'
-      const ctxHash   = `${ctx.tick >> 4}_${ctx.gold}_${ctx.lumber}_${ctx.supply}_${ctx.myUnits?.length}_${ctx.enemyUnits?.length}_${ctx.situation?.urgentAction}`
-      if (!hasUrgent && ctxHash === this.lastContextHash) return
-      this.lastContextHash = ctxHash
-
-      console.debug(`[Agent P${this.playerId}] thinking... urgent="${ctx.situation?.urgentAction?.slice(0,60) ?? 'none'}"`)
+      console.debug(`[Agent P${this.playerId}] thinking | urgent="${ctx.situation?.urgentAction?.slice(0, 80)}" | canAfford=${JSON.stringify(ctx.situation?.canAffordNow?.slice(0,2))}`)
 
       const decision = await callOpenRouter(
         this.apiKey,
@@ -196,7 +203,6 @@ export class AgentRunner {
       this.lastReasoning    = decision.reasoning ?? ''
       this.lastCommandCount = decision.commands.length
 
-      // Dispatch a UI update event so the HUD can show reasoning
       window.dispatchEvent(new CustomEvent('agent-thinking', {
         detail: {
           playerId:  this.playerId,
@@ -205,8 +211,7 @@ export class AgentRunner {
         },
       }))
 
-      let translated = 0
-      let skipped    = 0
+      let translated = 0, skipped = 0
       for (const raw of decision.commands) {
         const cmd = translateCommand(raw, this.stateRef, this.playerId)
         if (cmd) {
@@ -217,10 +222,7 @@ export class AgentRunner {
         }
       }
 
-      if (skipped > 0) {
-        console.warn(`[Agent P${this.playerId}] ${skipped}/${decision.commands.length} commands skipped (invalid IDs)`)
-      }
-      console.debug(`[Agent P${this.playerId}] "${this.lastReasoning}" → ${translated} commands queued`)
+      console.debug(`[Agent P${this.playerId}] "${this.lastReasoning}" → ${translated} queued, ${skipped} skipped`)
 
     } finally {
       this.isPending = false

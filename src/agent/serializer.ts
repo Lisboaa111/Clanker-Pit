@@ -108,7 +108,7 @@ export function serializeState(state: GameState, playerId: number): object {
     }))
 
   // ── Loot piles (free resources on ground — walk a worker over them) ────────
-  const lootPiles = state.lootPiles
+  const lootPiles = (state.lootPiles ?? [])
     .filter(l => l.amount > 0)
     .map(l => {
       const tile = worldToTile(l.x, l.z, TILE_SIZE)
@@ -138,9 +138,9 @@ export function serializeState(state: GameState, playerId: number): object {
 
   // What can be afforded right now
   const canAffordNow: string[] = []
-  if (readyTH && readyTH.trainingQueue < 5 && myRes.gold >= TRAIN_WORKER_GOLD && supplyFree > 0)
+  if (readyTH && readyTH.trainingQueue.length < 5 && myRes.gold >= TRAIN_WORKER_GOLD && supplyFree > 0)
     canAffordNow.push(`Worker (cost:${TRAIN_WORKER_GOLD}g) — TRAIN from buildingId:"${readyTH.id}"`)
-  if (hasBarracks && readyBarracks!.trainingQueue < 5 && supplyFree > 0) {
+  if (hasBarracks && readyBarracks!.trainingQueue.length < 5 && supplyFree > 0) {
     if (myRes.gold >= TRAIN_FOOTMAN_GOLD && myRes.lumber >= TRAIN_FOOTMAN_LUMBER)
       canAffordNow.push(`Footman (cost:${TRAIN_FOOTMAN_GOLD}g) — TRAIN from buildingId:"${readyBarracks!.id}"`)
     if (myRes.gold >= TRAIN_ARCHER_GOLD && myRes.lumber >= TRAIN_ARCHER_LUMBER)
@@ -158,7 +158,7 @@ export function serializeState(state: GameState, playerId: number): object {
   if (enemyDefenseless && enemyTH) {
     const allIds = myAllAlive.map(u => u.id)
     urgentAction = `⚠️ ATTACK WIN: Enemy has ZERO combat units and ZERO towers! Send ALL your units to ATTACK_BUILDING the enemy town_hall id="${enemyTH.id}" at (${enemyTH.tx},${enemyTH.tz}). Use unitIds: ${JSON.stringify(allIds)}`
-  } else if (supplyFree === 0) {
+  } else if (supplyFree <= 0) {
     urgentAction = `⚠️ SUPPLY CAPPED (${state.playerSupply[playerId]}/${state.playerSupplyMax[playerId]}): Train nothing until you BUILD a farm! Cost: ${FARM_GOLD}g + ${FARM_LUMBER}l`
   } else if (idleWorkerIds.length > 0 && resources.length > 0) {
     const closest = resources[0]

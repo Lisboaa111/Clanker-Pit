@@ -78,7 +78,7 @@ export function UnitPanel() {
   if (workers.length === 0 && !attackMode && !buildMode) {
     return (
       <div className="absolute bottom-0 left-1/2 -translate-x-1/2 mb-2
-                      bg-black/60 border border-white/10 rounded-lg px-6 py-3
+                      bg-black/50 backdrop-blur-md border border-white/15 rounded-lg px-6 py-3
                       text-white/30 text-xs font-mono select-none z-10">
         Click a unit to select • Right-click to command • Hold A + right-click for attack-move
       </div>
@@ -87,7 +87,7 @@ export function UnitPanel() {
 
   return (
     <div className="absolute bottom-0 left-1/2 -translate-x-1/2 mb-2
-                    bg-black/75 border border-blue-500/40 rounded-lg px-4 py-3
+                    bg-black/55 backdrop-blur-md border border-blue-500/35 rounded-lg px-4 py-3
                     flex flex-col gap-2 select-none z-10 max-w-4xl">
 
       {/* Attack-move or Build-mode status strip */}
@@ -129,7 +129,7 @@ function UnitCard({ worker: w }: { worker: SelectedWorkerInfo }) {
   const isRegen  = hpPct < 1 && w.state === WorkerState.IDLE
 
   return (
-    <div className="bg-white/5 border border-white/10 rounded p-2 min-w-[120px]">
+    <div className="bg-white/10 border border-white/20 rounded p-2 min-w-[120px]">
       {/* Unit type + ID */}
       <div className="flex items-center justify-between mb-1">
         <span className="text-sm">{UNIT_ICONS[w.unitType]}</span>

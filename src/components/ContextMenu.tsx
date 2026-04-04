@@ -43,7 +43,7 @@ export function ContextMenu() {
 
   return (
     <div
-      className="absolute z-50 bg-black/90 border border-blue-500/50 rounded-lg
+      className="absolute z-50 bg-black/55 backdrop-blur-md border border-blue-500/50 rounded-lg
                  shadow-xl shadow-black/60 min-w-[160px] overflow-hidden select-none"
       style={style}
     >

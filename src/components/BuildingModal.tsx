@@ -122,7 +122,7 @@ export function BuildingModal() {
   return (
     <div
       style={{ position: 'absolute', left, top, width: modalW }}
-      className="bg-black/92 border border-white/25 rounded-lg p-3 select-none z-20 font-mono text-xs shadow-2xl"
+      className="bg-black/60 backdrop-blur-md border border-white/25 rounded-lg p-3 select-none z-20 font-mono text-xs shadow-2xl"
     >
       {/* Header */}
       <div className="flex items-center justify-between mb-2">

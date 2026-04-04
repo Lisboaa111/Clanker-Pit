@@ -41,7 +41,7 @@ export function ResourceBar() {
 
   return (
     <div className={`absolute top-0 left-1/2 -translate-x-1/2 mt-2 flex items-center gap-4
-                     bg-black/75 border ${playerBorder} rounded-lg px-5 py-2 select-none z-10`}>
+                     bg-black/50 backdrop-blur-md border ${playerBorder} rounded-lg px-5 py-2 select-none z-10`}>
 
       {/* Player switcher (debug) */}
       <button

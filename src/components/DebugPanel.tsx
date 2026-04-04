@@ -50,14 +50,14 @@ export function DebugPanel() {
     <div className="absolute top-14 right-2 z-10 select-none font-mono text-xs w-56">
       <button
         onClick={() => setOpen(o => !o)}
-        className="w-full text-left bg-black/80 border border-white/20 rounded-t px-3 py-1
+        className="w-full text-left bg-black/50 backdrop-blur-md border border-white/20 rounded-t px-3 py-1
                    text-white/60 hover:text-white/90 transition-colors flex justify-between"
       >
         <span>DEBUG</span><span>{open ? '▼' : '▶'}</span>
       </button>
 
       {open && (
-        <div className="bg-black/85 border border-t-0 border-white/20 rounded-b p-3
+        <div className="bg-black/50 backdrop-blur-md border border-t-0 border-white/20 rounded-b p-3
                         space-y-1 max-h-[80vh] overflow-y-auto">
           <Row label="FPS"        value={data.fps} />
           <Row label="Supply"     value={`${data.playerSupply}/${data.playerSupplyMax}`} />

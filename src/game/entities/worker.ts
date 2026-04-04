@@ -1,13 +1,13 @@
 import * as THREE from 'three'
 import {
   Worker, WorkerState, ResourceType, GameState, UnitType,
-  CommandType, GameCommand, TileType, ProjectileRequest,
+  CommandType, GameCommand, TileType, ProjectileRequest, LootPile,
 } from '../types'
 import {
   makeWorkerMesh, makeFootmanMesh, makeArcherMesh,
   makeSelectionRing, makeCarryIndicator,
   makeHealthBar, updateHealthBarFill,
-  makePathLine, updateCarryIndicator,
+  makePathLine, updateCarryIndicator, makeLevelIndicator,
 } from '../../three/meshes'
 import { findPath, tileToWorld, worldToTile } from '../pathfinding'
 import { depleteResource } from './resource'
@@ -26,6 +26,7 @@ import {
   DEATH_ANIM_DURATION,
   FORMATION_SPACING,
   MAP_WIDTH, MAP_HEIGHT,
+  XP_PER_KILL_WORKER, XP_PER_KILL_FOOTMAN, XP_PER_KILL_ARCHER, XP_LEVEL_2, XP_LEVEL_3, XP_LEVEL_DAMAGE_BONUS, XP_LEVEL_HP_BONUS, CRIT_CHANCE, CRIT_MULTIPLIER, KNOCKBACK_DIST, CLEAVE_RADIUS, CLEAVE_DAMAGE_RATIO, MULTISHOT_INTERVAL, MULTISHOT_TARGETS, MULTISHOT_RADIUS, WORKER_REPAIR_RANGE, WORKER_REPAIR_RATE, LOOT_COLLECT_RADIUS,
 } from '../constants'
 
 let uid = 0
@@ -77,6 +78,10 @@ function baseUnit(
     dead: false,
     mesh, selectionRing: ring, carryIndicator: carry, hpFill,
     pathLine: null, selected: false,
+    xp: 0,
+    level: 1,
+    levelMesh: null,
+    attackCount: 0,
   }
 }
 
@@ -241,7 +246,7 @@ export function updateWorker(
   dt: number,
   state: GameState,
   scene: THREE.Scene,
-): ProjectileRequest | null {
+): ProjectileRequest[] {
   // Death animation — tick down timer and shrink mesh, then let gameLoop remove it
   if (worker.dead) {
     if (worker.deathAnimTimer > 0) {
@@ -249,7 +254,7 @@ export function updateWorker(
       const ratio = Math.max(0, worker.deathAnimTimer / DEATH_ANIM_DURATION)
       worker.mesh.scale.setScalar(ratio)
     }
-    return null
+    return []
   }
 
   // HP regeneration (when not in combat for a while)
@@ -259,10 +264,24 @@ export function updateWorker(
     updateHealthBarFill(worker.hpFill, worker.hp / worker.maxHp)
   }
 
-  let projectileReq: ProjectileRequest | null = null
+  let projectileReqs: ProjectileRequest[] = []
 
   switch (worker.state) {
     case WorkerState.IDLE:
+      // Idle workers auto-repair nearby friendly damaged buildings
+      if (worker.unitType === UnitType.WORKER) {
+        for (const b of state.buildings) {
+          if (b.playerId !== worker.playerId || b.destroyed || b.underConstruction || b.hp >= b.maxHp) continue
+          const bx = b.tileX * TILE_SIZE + TILE_SIZE / 2
+          const bz = b.tileZ * TILE_SIZE + TILE_SIZE / 2
+          const repairDist = Math.sqrt((worker.x - bx) ** 2 + (worker.z - bz) ** 2)
+          if (repairDist <= WORKER_REPAIR_RANGE) {
+            b.hp = Math.min(b.maxHp, b.hp + WORKER_REPAIR_RATE * dt)
+            updateHealthBarFill(b.hpFill, b.hp / b.maxHp, getBuildingHpBarWidth(b.type))
+            break
+          }
+        }
+      }
       break
 
     case WorkerState.MOVING_TO_TARGET:
@@ -281,7 +300,7 @@ export function updateWorker(
       break
 
     case WorkerState.ATTACKING:
-      projectileReq = attackTick(worker, dt, state, scene)
+      projectileReqs = attackTick(worker, dt, state, scene)
       break
 
     case WorkerState.BUILDING:
@@ -290,7 +309,7 @@ export function updateWorker(
   }
 
   syncMesh(worker)
-  return projectileReq
+  return projectileReqs
 }
 
 // ── Movement ──────────────────────────────────────────────────────────────────
@@ -360,6 +379,23 @@ function moveAlongPath(worker: Worker, dt: number, state: GameState, scene: THRE
     worker.x += (dx / d) * move
     worker.z += (dz / d) * move
     worker.mesh.rotation.y = Math.atan2(dx, dz)
+  }
+
+  // Loot auto-collection for workers while moving
+  if (worker.unitType === UnitType.WORKER) {
+    for (const loot of state.lootPiles) {
+      if (loot.amount <= 0) continue
+      const ldx = worker.x - loot.x
+      const ldz = worker.z - loot.z
+      if (Math.sqrt(ldx * ldx + ldz * ldz) <= LOOT_COLLECT_RADIUS) {
+        const pr = state.playerResources[worker.playerId]
+        if (pr) {
+          if (loot.type === ResourceType.GOLD) pr.gold += loot.amount
+          else pr.lumber += loot.amount
+        }
+        loot.amount = 0
+      }
+    }
   }
 }
 
@@ -595,7 +631,7 @@ function buildingTick(worker: Worker, dt: number, state: GameState, scene: THREE
 
 // ── Combat ────────────────────────────────────────────────────────────────────
 
-function attackTick(worker: Worker, dt: number, state: GameState, scene: THREE.Scene): ProjectileRequest | null {
+function attackTick(worker: Worker, dt: number, state: GameState, scene: THREE.Scene): ProjectileRequest[] {
   const atkDmg  = getAtkDmg(worker)
   const atkRange = getAtkRange(worker)
   const atkCd   = getAtkCd(worker)
@@ -606,7 +642,7 @@ function attackTick(worker: Worker, dt: number, state: GameState, scene: THREE.S
     if (!building) {
       worker.attackTargetBuildingId = null
       engageNextTarget(worker, state, scene)
-      return null
+      return []
     }
     const bpos = buildingWorldPos(building)
     if (dist(worker, bpos) > atkRange * 2.5) {
@@ -614,16 +650,16 @@ function attackTick(worker: Worker, dt: number, state: GameState, scene: THREE.S
       const path = findPath(state.map, currentTileX(worker), currentTileZ(worker), dest.x, dest.z, false)
       worker.state = WorkerState.MOVING_TO_ATTACK
       worker.path = path; worker.pathIndex = 0
-      return null
+      return []
     }
     worker.mesh.rotation.y = Math.atan2(bpos.x - worker.x, bpos.z - worker.z)
     worker.attackCooldown -= dt
-    if (worker.attackCooldown > 0) return null
+    if (worker.attackCooldown > 0) return []
     worker.attackCooldown = atkCd
 
     if (worker.unitType === UnitType.ARCHER) {
       // Archers fire projectile at buildings too
-      return archerProjectileReq(worker, null, building.id, atkDmg)
+      return [archerProjectileReq(worker, null, building.id, atkDmg)]
     }
 
     damageBuilding(building, atkDmg)
@@ -632,7 +668,7 @@ function attackTick(worker: Worker, dt: number, state: GameState, scene: THREE.S
       worker.attackTargetBuildingId = null
       engageNextTarget(worker, state, scene)
     }
-    return null
+    return []
   }
 
   // ── Unit target ─────────────────────────────────────────────────────────────
@@ -640,32 +676,84 @@ function attackTick(worker: Worker, dt: number, state: GameState, scene: THREE.S
   if (!target) {
     worker.attackTargetId = null
     engageNextTarget(worker, state, scene)
-    return null
+    return []
   }
 
   if (dist(worker, target) > atkRange * 1.5) {
     const path = findPath(state.map, currentTileX(worker), currentTileZ(worker), currentTileX(target), currentTileZ(target), false)
     worker.state = WorkerState.MOVING_TO_ATTACK
     worker.path = path; worker.pathIndex = 0
-    return null
+    return []
   }
 
   worker.mesh.rotation.y = Math.atan2(target.x - worker.x, target.z - worker.z)
   worker.attackCooldown -= dt
-  if (worker.attackCooldown > 0) return null
+  if (worker.attackCooldown > 0) return []
   worker.attackCooldown = atkCd
 
   // Archer fires projectile
   if (worker.unitType === UnitType.ARCHER) {
-    return archerProjectileReq(worker, target.id, null, atkDmg)
+    worker.attackCount++
+    const reqs: ProjectileRequest[] = [archerProjectileReq(worker, target.id, null, atkDmg)]
+
+    if (worker.attackCount % MULTISHOT_INTERVAL === 0) {
+      let extraCount = 0
+      for (const w of state.workers) {
+        if (extraCount >= MULTISHOT_TARGETS) break
+        if (w === target || w.dead || w.playerId === worker.playerId) continue
+        const ad = Math.sqrt((w.x - worker.x) ** 2 + (w.z - worker.z) ** 2)
+        if (ad <= MULTISHOT_RADIUS) {
+          reqs.push(archerProjectileReq(worker, w.id, null, atkDmg))
+          extraCount++
+        }
+      }
+    }
+    return reqs
   }
 
   // Melee damage
-  target.hp = Math.max(0, target.hp - atkDmg)
+
+  // Critical hit roll
+  const isCrit = Math.random() < CRIT_CHANCE
+  const finalDmg = isCrit ? Math.round(atkDmg * CRIT_MULTIPLIER) : atkDmg
+
+  target.hp = Math.max(0, target.hp - finalDmg)
   target.lastDamagedTick = state.tick
   updateHealthBarFill(target.hpFill, target.hp / target.maxHp)
 
-  // Retaliation: any unit not already in combat fights back
+  // Knockback: push target away from attacker
+  const kbDx = target.x - worker.x
+  const kbDz = target.z - worker.z
+  const kbD  = Math.sqrt(kbDx * kbDx + kbDz * kbDz) || 1
+  target.x += (kbDx / kbD) * KNOCKBACK_DIST
+  target.z += (kbDz / kbD) * KNOCKBACK_DIST
+
+  // Footman Cleave: hit one adjacent enemy for 50% damage
+  if (worker.unitType === UnitType.FOOTMAN) {
+    const cleaveDmg = Math.round(finalDmg * CLEAVE_DAMAGE_RATIO)
+    let bestCleave: Worker | null = null
+    let bestCleaveDist = CLEAVE_RADIUS
+    for (const w of state.workers) {
+      if (w === target || w === worker || w.dead || w.playerId === worker.playerId) continue
+      const cd = Math.sqrt((w.x - target.x) ** 2 + (w.z - target.z) ** 2)
+      if (cd < bestCleaveDist) { bestCleaveDist = cd; bestCleave = w }
+    }
+    if (bestCleave) {
+      bestCleave.hp = Math.max(0, bestCleave.hp - cleaveDmg)
+      bestCleave.lastDamagedTick = state.tick
+      updateHealthBarFill(bestCleave.hpFill, bestCleave.hp / bestCleave.maxHp)
+      window.dispatchEvent(new CustomEvent('dmg-number', {
+        detail: { x: bestCleave.x, y: bestCleave.mesh.position.y + 0.4, z: bestCleave.z, amount: cleaveDmg, crit: false },
+      }))
+      if (bestCleave.hp <= 0) {
+        bestCleave.dead = true
+        bestCleave.deathAnimTimer = DEATH_ANIM_DURATION
+        grantXp(worker, bestCleave, scene)
+      }
+    }
+  }
+
+  // Retaliation
   if (
     target.attackTargetId === null &&
     target.attackTargetBuildingId === null &&
@@ -681,17 +769,18 @@ function attackTick(worker: Worker, dt: number, state: GameState, scene: THREE.S
 
   // Dispatch damage number
   window.dispatchEvent(new CustomEvent('dmg-number', {
-    detail: { x: target.x, y: target.mesh.position.y + 0.4, z: target.z, amount: atkDmg }
+    detail: { x: target.x, y: target.mesh.position.y + 0.4, z: target.z, amount: finalDmg, crit: isCrit },
   }))
 
   if (target.hp <= 0) {
     target.dead = true
     target.deathAnimTimer = DEATH_ANIM_DURATION
+    grantXp(worker, target, scene)
     worker.attackTargetId = null
     engageNextTarget(worker, state, scene)
   }
 
-  return null
+  return []
 }
 
 function archerProjectileReq(
@@ -709,6 +798,7 @@ function archerProjectileReq(
     damage,
     speed: ARCHER_PROJECTILE_SPEED,
     fromPlayerId: archer.playerId,
+    fromWorkerId: archer.id,
   }
 }
 
@@ -816,9 +906,48 @@ function buildingWorldPos(b: import('../types').Building) {
 }
 
 function getAtkDmg(w: Worker): number {
-  if (w.unitType === UnitType.FOOTMAN) return FOOTMAN_ATTACK_DAMAGE
-  if (w.unitType === UnitType.ARCHER)  return ARCHER_ATTACK_DAMAGE
-  return WORKER_ATTACK_DAMAGE
+  let base: number
+  if (w.unitType === UnitType.FOOTMAN) base = FOOTMAN_ATTACK_DAMAGE
+  else if (w.unitType === UnitType.ARCHER) base = ARCHER_ATTACK_DAMAGE
+  else base = WORKER_ATTACK_DAMAGE
+  return base * (1 + (w.level - 1) * XP_LEVEL_DAMAGE_BONUS)
+}
+
+function getUnitXpValue(w: Worker): number {
+  if (w.unitType === UnitType.FOOTMAN) return XP_PER_KILL_FOOTMAN
+  if (w.unitType === UnitType.ARCHER)  return XP_PER_KILL_ARCHER
+  return XP_PER_KILL_WORKER
+}
+
+function getBaseMaxHp(w: Worker): number {
+  if (w.unitType === UnitType.FOOTMAN) return FOOTMAN_HP
+  if (w.unitType === UnitType.ARCHER)  return ARCHER_HP
+  return WORKER_HP
+}
+
+export function grantXp(killer: Worker, victim: Worker, scene: THREE.Scene): void {
+  if (killer.dead) return
+  const gain = getUnitXpValue(victim)
+  killer.xp += gain
+  const oldLevel = killer.level
+  if (killer.level < 2 && killer.xp >= XP_LEVEL_2) killer.level = 2
+  if (killer.level < 3 && killer.xp >= XP_LEVEL_3) killer.level = 3
+  if (killer.level !== oldLevel) {
+    const newMax = getBaseMaxHp(killer) * (1 + (killer.level - 1) * XP_LEVEL_HP_BONUS)
+    const diff = newMax - killer.maxHp
+    killer.maxHp = newMax
+    killer.hp = Math.min(killer.maxHp, killer.hp + diff)
+    updateHealthBarFill(killer.hpFill, killer.hp / killer.maxHp)
+    if (killer.levelMesh) {
+      killer.mesh.remove(killer.levelMesh)
+      killer.levelMesh = null
+    }
+    const newIndicator = makeLevelIndicator(killer.level)
+    if (newIndicator) {
+      killer.mesh.add(newIndicator)
+      killer.levelMesh = newIndicator
+    }
+  }
 }
 
 function getAtkRange(w: Worker): number {

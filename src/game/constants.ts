@@ -12,11 +12,11 @@ export const FOREST_PATCH_SIZE_MIN     = 4
 export const FOREST_PATCH_SIZE_MAX     = 16
 
 // ── Worker ────────────────────────────────────────────────────────────────────
-export const WORKER_SPEED        = 6
+export const WORKER_SPEED        = 2.5
 export const WORKER_CARRY_GOLD   = 10
 export const WORKER_CARRY_LUMBER = 5
-export const GATHER_TICK_RATE    = 0.4
-export const DEPOSIT_DURATION    = 0.4
+export const GATHER_TICK_RATE    = 1.2
+export const DEPOSIT_DURATION    = 0.8
 export const WORKER_HP           = 50
 export const WORKER_ATTACK_DAMAGE   = 8
 export const WORKER_ATTACK_RANGE    = 2.2
@@ -29,7 +29,7 @@ export const FOOTMAN_HP              = 160
 export const FOOTMAN_ATTACK_DAMAGE   = 18
 export const FOOTMAN_ATTACK_RANGE    = 2.4
 export const FOOTMAN_ATTACK_COOLDOWN = 1.3
-export const FOOTMAN_SPEED           = 4.5
+export const FOOTMAN_SPEED           = 2.0
 export const FOOTMAN_SIZE            = 0.55
 
 // ── Archer ────────────────────────────────────────────────────────────────────
@@ -37,7 +37,7 @@ export const ARCHER_HP               = 70
 export const ARCHER_ATTACK_DAMAGE    = 14
 export const ARCHER_ATTACK_RANGE     = 9.0
 export const ARCHER_ATTACK_COOLDOWN  = 0.9
-export const ARCHER_SPEED            = 6.5
+export const ARCHER_SPEED            = 3.0
 export const ARCHER_SIZE             = 0.38
 export const ARCHER_PROJECTILE_SPEED = 20
 
@@ -136,3 +136,66 @@ export const COLOR_CARRY_WOOD = 0x8B4513
 
 // ── HUD ───────────────────────────────────────────────────────────────────────
 export const HUD_UPDATE_INTERVAL = 100
+
+// ── XP / Levels ───────────────────────────────────────────────────────────────
+export const XP_PER_KILL_WORKER    = 20
+export const XP_PER_KILL_FOOTMAN   = 40
+export const XP_PER_KILL_ARCHER    = 30
+export const XP_LEVEL_2            = 60
+export const XP_LEVEL_3            = 150
+export const XP_LEVEL_DAMAGE_BONUS = 0.20
+export const XP_LEVEL_HP_BONUS     = 0.20
+
+// ── Loot ──────────────────────────────────────────────────────────────────────
+export const LOOT_COLLECT_RADIUS   = 3.0
+export const LOOT_DESPAWN_TICKS    = 1200
+export const LOOT_SPIN_SPEED       = 2.0
+
+// ── Combat extras ─────────────────────────────────────────────────────────────
+export const CRIT_CHANCE           = 0.15
+export const CRIT_MULTIPLIER       = 1.75
+export const KNOCKBACK_DIST        = 0.35
+export const CLEAVE_RADIUS         = 3.5
+export const CLEAVE_DAMAGE_RATIO   = 0.5
+export const MULTISHOT_INTERVAL    = 4
+export const MULTISHOT_TARGETS     = 2
+export const MULTISHOT_RADIUS      = 8.0
+export const WORKER_REPAIR_RANGE   = 3.0
+export const WORKER_REPAIR_RATE    = 5.0
+
+// ── Building upgrades ─────────────────────────────────────────────────────────
+export const TOWER_L2_GOLD         = 150
+export const TOWER_L2_LUMBER       = 80
+export const TOWER_L2_TIME         = 25
+export const TOWER_L3_GOLD         = 200
+export const TOWER_L3_LUMBER       = 120
+export const TOWER_L3_TIME         = 35
+
+export const BARRACKS_L2_GOLD      = 200
+export const BARRACKS_L2_LUMBER    = 100
+export const BARRACKS_L2_TIME      = 30
+export const BARRACKS_L2_BONUS_XP  = 40
+export const BARRACKS_L3_GOLD      = 300
+export const BARRACKS_L3_LUMBER    = 150
+export const BARRACKS_L3_TIME      = 40
+export const BARRACKS_L3_BONUS_XP  = 100
+
+export const FARM_L2_GOLD          = 100
+export const FARM_L2_LUMBER        = 50
+export const FARM_L2_TIME          = 20
+export const FARM_L2_SUPPLY        = 5
+export const FARM_L3_GOLD          = 150
+export const FARM_L3_LUMBER        = 80
+export const FARM_L3_TIME          = 25
+export const FARM_L3_SUPPLY        = 8
+
+export const TOWNHALL_L2_GOLD         = 300
+export const TOWNHALL_L2_LUMBER       = 150
+export const TOWNHALL_L2_TIME         = 45
+export const TOWNHALL_L2_SUPPLY       = 3
+export const TOWNHALL_L2_TRAIN_BONUS  = 0.20
+export const TOWNHALL_L3_GOLD         = 500
+export const TOWNHALL_L3_LUMBER       = 250
+export const TOWNHALL_L3_TIME         = 60
+export const TOWNHALL_L3_SUPPLY       = 5
+export const TOWNHALL_L3_TRAIN_BONUS  = 0.40

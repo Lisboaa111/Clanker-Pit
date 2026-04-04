@@ -12,6 +12,8 @@ import {
   createBuilding, completeConstruction, calcSupplyMax,
 } from './entities/building'
 import { createProjectile, updateProjectiles } from './entities/projectile'
+import { updateLootPiles, createLootPile } from './entities/loot'
+import { startBuildingUpgrade } from './entities/building'
 import { worldToTile } from './pathfinding'
 import {
   TILE_SIZE, HUD_UPDATE_INTERVAL,
@@ -21,6 +23,7 @@ import {
   BARRACKS_GOLD, BARRACKS_LUMBER,
   FARM_GOLD, FARM_LUMBER,
   TOWER_GOLD, TOWER_LUMBER,
+  XP_LEVEL_2, XP_LEVEL_3, XP_LEVEL_HP_BONUS,
 } from './constants'
 import type { InputSystem } from './input'
 import type { CameraController } from '../three/camera'
@@ -98,9 +101,15 @@ export function createGameLoop(
     building.trainingQueue.push({ unitType, timer: duration, duration })
   }
 
+  const onUpgradeBuilding = (e: Event) => {
+    const detail = (e as CustomEvent<{ buildingId: string }>).detail
+    input.commandQueue.push({ type: CommandType.UPGRADE_BUILDING, buildingId: detail.buildingId } as any)
+  }
+
   window.addEventListener('worker-action', onWorkerAction)
   window.addEventListener('switch-player', onSwitchPlayer)
   window.addEventListener('train-unit', onTrainUnit)
+  window.addEventListener('upgrade-building', onUpgradeBuilding)
 
   function tick(now: number) {
     animId = requestAnimationFrame(tick)
@@ -160,6 +169,16 @@ export function createGameLoop(
         // Formation movement in attack-move mode
         applyMoveCommandFormation(state.workers, cmd.workerIds, cmd.tileX, cmd.tileZ, true, state, scene)
 
+      } else if (cmd.type === CommandType.UPGRADE_BUILDING) {
+        const building = state.buildings.find(
+          b => b.id === (cmd as any).buildingId &&
+          !b.destroyed && !b.upgrading && !b.underConstruction
+        )
+        if (building && building.playerId === state.currentPlayerId) {
+          const pr = state.playerResources[state.currentPlayerId]
+          if (pr) startBuildingUpgrade(building, pr)
+        }
+
       } else {
         // All other commands: apply to all matching workers
         state.workers
@@ -169,9 +188,7 @@ export function createGameLoop(
     }
 
     // ── Update workers (collect projectile requests) ───────────────────────
-    const projRequests = state.workers
-      .map(w => updateWorker(w, dt, state, scene))
-      .filter((r): r is NonNullable<typeof r> => r !== null)
+    const projRequests = state.workers.flatMap(w => updateWorker(w, dt, state, scene))
 
     projRequests.forEach(req => {
       state.projectiles.push(createProjectile(req, scene))
@@ -184,6 +201,11 @@ export function createGameLoop(
     // ── Remove dead workers (after death animation completes) ─────────────
     const toRemove = state.workers.filter(w => w.dead && w.deathAnimTimer <= 0)
     toRemove.forEach(w => {
+      // Drop loot if the worker was carrying resources when they died
+      if (w.carryAmount > 0 && w.carryType !== null) {
+        const pile = createLootPile(w.x, w.z, w.carryType, w.carryAmount, state.tick, scene)
+        state.lootPiles.push(pile)
+      }
       removeDeadWorker(w, scene)
       state.selectedWorkerIds.delete(w.id)
     })
@@ -191,14 +213,27 @@ export function createGameLoop(
       state.workers = state.workers.filter(w => !(w.dead && w.deathAnimTimer <= 0))
     }
 
+    // Update loot piles (animate, despawn, auto-collect)
+    updateLootPiles(state.lootPiles, state.workers, state.playerResources, dt, state.tick, scene)
+    state.lootPiles = state.lootPiles.filter(l => l.amount > 0)
+
     // ── Update buildings ──────────────────────────────────────────────────
     state.buildings.forEach(b => {
       const update = updateBuilding(b, dt, state, scene)
       if (!update) return
 
       if (update.spawn) {
-        const { unitType, playerId, tileX, tileZ } = update.spawn
+        const { unitType, playerId, tileX, tileZ, bonusXp } = update.spawn
         const unit = createUnit(unitType, tileX, tileZ, playerId, scene)
+        if (bonusXp > 0) {
+          unit.xp = bonusXp
+          if (unit.xp >= XP_LEVEL_3) unit.level = 3
+          else if (unit.xp >= XP_LEVEL_2) unit.level = 2
+          if (unit.level > 1) {
+            unit.maxHp = unit.maxHp * (1 + (unit.level - 1) * XP_LEVEL_HP_BONUS)
+            unit.hp = unit.maxHp
+          }
+        }
         state.workers.push(unit)
       }
       if (update.projectile) {
@@ -241,6 +276,7 @@ export function createGameLoop(
     window.removeEventListener('worker-action', onWorkerAction)
     window.removeEventListener('switch-player', onSwitchPlayer)
     window.removeEventListener('train-unit', onTrainUnit)
+    window.removeEventListener('upgrade-building', onUpgradeBuilding)
   }
 
   return { start, stop }
@@ -259,6 +295,9 @@ function toInfo(w: WorkerLike): SelectedWorkerInfo {
     tileX: x, tileZ: z,
     pathLength: Math.max(0, w.path.length - w.pathIndex),
     hp: w.hp, maxHp: w.maxHp,
+    xp: w.xp,
+    level: w.level,
+    maxXp: w.level === 1 ? XP_LEVEL_2 : w.level === 2 ? XP_LEVEL_3 : 0,
   }
 }
 
@@ -287,6 +326,9 @@ function emitHUD(state: GameState, fps: number, input: InputSystem, cameraCtrl: 
       trainingQueue: b.trainingQueue.map(item => ({ ...item })),
       underConstruction: b.underConstruction,
       buildProgress: b.buildProgress,
+      level: b.level,
+      upgrading: b.upgrading,
+      upgradeProgress: b.upgradeProgress,
     })),
     playerSupply:    state.playerSupply[state.currentPlayerId],
     playerSupplyMax: state.playerSupplyMax[state.currentPlayerId],

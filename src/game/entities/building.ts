@@ -14,6 +14,13 @@ import {
   FARM_HP, FARM_HP_BAR_WIDTH, FARM_BUILD_TIME,
   TOWER_HP, TOWER_HP_BAR_WIDTH, TOWER_ATTACK_RANGE, TOWER_ATTACK_DAMAGE, TOWER_ATTACK_COOLDOWN, TOWER_BUILD_TIME,
   SUPPLY_FROM_TOWNHALL, SUPPLY_FROM_FARM,
+  TOWER_L2_GOLD, TOWER_L2_LUMBER, TOWER_L2_TIME, TOWER_L3_GOLD, TOWER_L3_LUMBER, TOWER_L3_TIME,
+  BARRACKS_L2_GOLD, BARRACKS_L2_LUMBER, BARRACKS_L2_TIME, BARRACKS_L2_BONUS_XP,
+  BARRACKS_L3_GOLD, BARRACKS_L3_LUMBER, BARRACKS_L3_TIME, BARRACKS_L3_BONUS_XP,
+  FARM_L2_GOLD, FARM_L2_LUMBER, FARM_L2_TIME, FARM_L2_SUPPLY,
+  FARM_L3_GOLD, FARM_L3_LUMBER, FARM_L3_TIME, FARM_L3_SUPPLY,
+  TOWNHALL_L2_GOLD, TOWNHALL_L2_LUMBER, TOWNHALL_L2_TIME, TOWNHALL_L2_SUPPLY, TOWNHALL_L2_TRAIN_BONUS,
+  TOWNHALL_L3_GOLD, TOWNHALL_L3_LUMBER, TOWNHALL_L3_TIME, TOWNHALL_L3_SUPPLY, TOWNHALL_L3_TRAIN_BONUS,
 } from '../constants'
 import { adjacentGrassTile } from '../utils'
 
@@ -26,6 +33,7 @@ export interface SpawnRequest {
   playerId: number
   tileX: number
   tileZ: number
+  bonusXp: number
 }
 
 export interface BuildingUpdate {
@@ -76,8 +84,14 @@ export function calcSupplyMax(buildings: Building[], playerId: number): number {
     buildings
       .filter(b => b.playerId === playerId && !b.destroyed && !b.underConstruction)
       .reduce((acc, b) => {
-        if (b.type === BuildingType.TOWN_HALL) return acc + SUPPLY_FROM_TOWNHALL
-        if (b.type === BuildingType.FARM)      return acc + SUPPLY_FROM_FARM
+        if (b.type === BuildingType.TOWN_HALL) {
+          const thBonus = b.level === 2 ? TOWNHALL_L2_SUPPLY : b.level === 3 ? TOWNHALL_L3_SUPPLY : 0
+          return acc + SUPPLY_FROM_TOWNHALL + thBonus
+        }
+        if (b.type === BuildingType.FARM) {
+          const farmBonus = b.level === 2 ? FARM_L2_SUPPLY : b.level === 3 ? FARM_L3_SUPPLY : 0
+          return acc + SUPPLY_FROM_FARM + farmBonus
+        }
         return acc
       }, 0),
     30,
@@ -124,6 +138,10 @@ function makeBuilding(
     buildProgress: underConstruction ? 0 : 1,
     builderId: null,
     attackCooldown: 0,
+    level: 1,
+    upgrading: false,
+    upgradeProgress: 0,
+    upgradeTime: 0,
   }
 }
 
@@ -229,6 +247,51 @@ export function completeConstruction(building: Building, scene: THREE.Scene) {
   updateHealthBarFill(hpFill, building.hp / building.maxHp, barWidth)
 }
 
+// ── Upgrade cost lookup ───────────────────────────────────────────────────────
+export function getBuildingUpgradeCost(
+  type: BuildingType,
+  currentLevel: number,
+): { gold: number; lumber: number; time: number } | null {
+  if (currentLevel >= 3) return null
+  const isL2 = currentLevel === 1
+  switch (type) {
+    case BuildingType.TOWER:
+      return isL2
+        ? { gold: TOWER_L2_GOLD, lumber: TOWER_L2_LUMBER, time: TOWER_L2_TIME }
+        : { gold: TOWER_L3_GOLD, lumber: TOWER_L3_LUMBER, time: TOWER_L3_TIME }
+    case BuildingType.BARRACKS:
+      return isL2
+        ? { gold: BARRACKS_L2_GOLD, lumber: BARRACKS_L2_LUMBER, time: BARRACKS_L2_TIME }
+        : { gold: BARRACKS_L3_GOLD, lumber: BARRACKS_L3_LUMBER, time: BARRACKS_L3_TIME }
+    case BuildingType.FARM:
+      return isL2
+        ? { gold: FARM_L2_GOLD, lumber: FARM_L2_LUMBER, time: FARM_L2_TIME }
+        : { gold: FARM_L3_GOLD, lumber: FARM_L3_LUMBER, time: FARM_L3_TIME }
+    case BuildingType.TOWN_HALL:
+      return isL2
+        ? { gold: TOWNHALL_L2_GOLD, lumber: TOWNHALL_L2_LUMBER, time: TOWNHALL_L2_TIME }
+        : { gold: TOWNHALL_L3_GOLD, lumber: TOWNHALL_L3_LUMBER, time: TOWNHALL_L3_TIME }
+    default:
+      return null
+  }
+}
+
+// ── Start an upgrade ──────────────────────────────────────────────────────────
+export function startBuildingUpgrade(
+  building: Building,
+  playerResources: { gold: number; lumber: number },
+): boolean {
+  const cost = getBuildingUpgradeCost(building.type, building.level)
+  if (!cost) return false
+  if (playerResources.gold < cost.gold || playerResources.lumber < cost.lumber) return false
+  playerResources.gold   -= cost.gold
+  playerResources.lumber -= cost.lumber
+  building.upgrading       = true
+  building.upgradeProgress = 0
+  building.upgradeTime     = cost.time
+  return true
+}
+
 // ── Per-frame update ──────────────────────────────────────────────────────────
 export function updateBuilding(
   building: Building,
@@ -238,13 +301,30 @@ export function updateBuilding(
 ): BuildingUpdate | null {
   if (building.destroyed) return null
 
+  // Upgrade progress tick
+  if (building.upgrading) {
+    building.upgradeProgress = Math.min(1, building.upgradeProgress + dt / building.upgradeTime)
+    if (building.upgradeProgress >= 1) {
+      building.level++
+      building.upgrading = false
+      building.upgradeProgress = 0
+      window.dispatchEvent(new CustomEvent('building-upgraded', {
+        detail: { buildingId: building.id, level: building.level },
+      }))
+    }
+    return null  // no shooting or training while upgrading
+  }
+
   // ── Tower: auto-attack nearby enemies ──────────────────────────────────────
   if (building.type === BuildingType.TOWER && !building.underConstruction) {
     building.attackCooldown -= dt
     if (building.attackCooldown <= 0) {
-      const target = findNearestEnemy(building, state.workers)
+      const towerDamage = TOWER_ATTACK_DAMAGE * (1 + (building.level - 1) * 0.5)
+      const towerRange  = TOWER_ATTACK_RANGE  + (building.level - 1) * 1.5
+      const towerCd     = building.level === 3 ? TOWER_ATTACK_COOLDOWN * 0.7 : TOWER_ATTACK_COOLDOWN
+      const target = findNearestEnemy(building, state.workers, towerRange)
       if (target) {
-        building.attackCooldown = TOWER_ATTACK_COOLDOWN
+        building.attackCooldown = towerCd
         const wx = building.tileX * TILE_SIZE + TILE_SIZE / 2
         const wz = building.tileZ * TILE_SIZE + TILE_SIZE / 2
         return {
@@ -252,7 +332,7 @@ export function updateBuilding(
             fromX: wx, fromY: 2.8, fromZ: wz,
             targetId: target.id,
             targetBuildingId: null,
-            damage: TOWER_ATTACK_DAMAGE,
+            damage: towerDamage,
             speed: 16,
             fromPlayerId: building.playerId,
           },
@@ -265,11 +345,17 @@ export function updateBuilding(
   // ── Training queue ─────────────────────────────────────────────────────────
   if (!building.underConstruction && building.trainingQueue.length > 0) {
     const item = building.trainingQueue[0]
-    item.timer -= dt
+    const trainSpeedBonus = (building.type as string) === 'town_hall'
+      ? (building.level === 2 ? TOWNHALL_L2_TRAIN_BONUS : building.level === 3 ? TOWNHALL_L3_TRAIN_BONUS : 0)
+      : 0
+    item.timer -= dt * (1 + trainSpeedBonus)
     if (item.timer <= 0) {
       building.trainingQueue.shift()
       const spawnTile = adjacentGrassTile(state.map, building.tileX, building.tileZ)
-      return { spawn: { unitType: item.unitType, playerId: building.playerId, tileX: spawnTile.x, tileZ: spawnTile.z } }
+      const bonusXp = (building.type as string) === 'barracks'
+        ? (building.level === 2 ? BARRACKS_L2_BONUS_XP : building.level === 3 ? BARRACKS_L3_BONUS_XP : 0)
+        : 0
+      return { spawn: { unitType: item.unitType, playerId: building.playerId, tileX: spawnTile.x, tileZ: spawnTile.z, bonusXp } }
     }
   }
 
@@ -288,11 +374,11 @@ export function removeDestroyedBuilding(building: Building, scene: THREE.Scene) 
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-function findNearestEnemy(building: Building, workers: Worker[]): Worker | null {
+function findNearestEnemy(building: Building, workers: Worker[], range: number): Worker | null {
   const bx = building.tileX * TILE_SIZE + TILE_SIZE / 2
   const bz = building.tileZ * TILE_SIZE + TILE_SIZE / 2
   let nearest: Worker | null = null
-  let nearestD = TOWER_ATTACK_RANGE
+  let nearestD = range
   for (const w of workers) {
     if (w.dead || w.playerId === building.playerId || w.deathAnimTimer > 0) continue
     const dx = w.x - bx, dz = w.z - bz

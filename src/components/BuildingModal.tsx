@@ -6,6 +6,7 @@ import {
   TRAIN_ARCHER_GOLD, TRAIN_ARCHER_LUMBER, TRAIN_ARCHER_TIME,
   TOWER_ATTACK_RANGE, TOWER_ATTACK_DAMAGE,
 } from '../game/constants'
+import { getBuildingUpgradeCost } from '../game/entities/building'
 
 interface BuildingSelectedEvent {
   buildingId: string
@@ -86,6 +87,10 @@ export function BuildingModal() {
     window.dispatchEvent(new CustomEvent('train-unit', { detail: { buildingId, unitType } }))
   }
 
+  const upgradeBuilding = (buildingId: string) => {
+    window.dispatchEvent(new CustomEvent('upgrade-building', { detail: { buildingId } }))
+  }
+
   if (!open || !buildingInfo) return null
 
   const hpPct    = buildingInfo.hp / buildingInfo.maxHp
@@ -96,6 +101,17 @@ export function BuildingModal() {
   const canAffordWorker  = gold >= TRAIN_WORKER_GOLD  && lumber >= TRAIN_WORKER_LUMBER  && !supplyFull
   const canAffordFootman = gold >= TRAIN_FOOTMAN_GOLD && lumber >= TRAIN_FOOTMAN_LUMBER && !supplyFull
   const canAffordArcher  = gold >= TRAIN_ARCHER_GOLD  && lumber >= TRAIN_ARCHER_LUMBER  && !supplyFull
+
+  const bLevel: number = (buildingInfo as any)?.level ?? 1
+  const upgradeCost = buildingInfo ? getBuildingUpgradeCost((buildingInfo as any).type ?? buildingInfo.type, bLevel) : null
+  const isUpgrading: boolean = (buildingInfo as any)?.upgrading ?? false
+  const upgradeProgress: number = (buildingInfo as any)?.upgradeProgress ?? 0
+  const canAffordUpgrade = upgradeCost !== null
+    && gold >= upgradeCost.gold
+    && lumber >= upgradeCost.lumber
+    && !isUpgrading
+    && !(buildingInfo?.underConstruction)
+    && bLevel < 3
 
   // Clamp position to viewport
   const modalW = 230
@@ -145,6 +161,53 @@ export function BuildingModal() {
           <div className="h-full rounded transition-all" style={{ width: `${hpPct * 100}%`, background: hpColor }} />
         </div>
       </div>
+
+      {/* Level badge */}
+      {!buildingInfo.underConstruction && (
+        <div className="flex items-center justify-between text-[10px] mb-2">
+          <span className="text-white/40">Level</span>
+          <span className={bLevel === 3 ? 'text-yellow-400 font-bold' : 'text-white/60'}>
+            {bLevel === 1 ? 'I' : bLevel === 2 ? 'II' : 'III'}
+          </span>
+        </div>
+      )}
+
+      {/* Upgrade in progress */}
+      {isUpgrading && (
+        <div className="mb-2">
+          <div className="text-blue-400/80 text-[10px] mb-1">⬆ Upgrading…</div>
+          <div className="w-full h-2 bg-white/10 rounded overflow-hidden">
+            <div
+              className="h-full bg-blue-400 rounded transition-all"
+              style={{ width: `${upgradeProgress * 100}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Upgrade button */}
+      {!buildingInfo.underConstruction && !isUpgrading && bLevel < 3 && upgradeCost && (
+        <div className="border-t border-white/10 pt-2 mb-2">
+          <button
+            onClick={() => upgradeBuilding(buildingInfo.id)}
+            disabled={!canAffordUpgrade}
+            className={[
+              'w-full text-left px-2 py-1.5 rounded border transition-colors text-[11px]',
+              canAffordUpgrade
+                ? 'border-blue-500/40 hover:bg-blue-500/10 text-blue-300 cursor-pointer'
+                : 'border-white/8 text-white/25 cursor-not-allowed',
+            ].join(' ')}
+          >
+            <div className="flex items-center justify-between">
+              <span>⬆ Upgrade to {bLevel === 1 ? 'II' : 'III'}</span>
+              <span className="text-[10px] text-white/30">{upgradeCost.time}s</span>
+            </div>
+            <div className="text-[10px] text-yellow-400/70 mt-0.5">
+              {upgradeCost.gold}g + {upgradeCost.lumber}w
+            </div>
+          </button>
+        </div>
+      )}
 
       {/* Content by building type */}
       {!buildingInfo.underConstruction && (
@@ -202,7 +265,9 @@ export function BuildingModal() {
             {btype === BuildingType.FARM && (
               <div className="space-y-1">
                 <div className="text-white/60 text-[11px]">🌾 Provides food supply</div>
-                <div className="text-green-400 text-[11px]">+10 supply cap</div>
+                <div className="text-green-400 text-[11px]">
+                  +{bLevel === 1 ? 10 : bLevel === 2 ? 15 : 18} supply cap
+                </div>
                 <div className="text-white/40 text-[10px]">
                   Population: {supply} / {supplyMax}
                 </div>
@@ -215,11 +280,11 @@ export function BuildingModal() {
                 <div className="text-white/60 text-[11px]">🗼 Auto-attacks nearby enemies</div>
                 <div className="flex justify-between text-[10px]">
                   <span className="text-white/40">Range</span>
-                  <span className="text-white/70">{TOWER_ATTACK_RANGE} units</span>
+                  <span className="text-white/70">{(TOWER_ATTACK_RANGE + (bLevel - 1) * 1.5).toFixed(1)} units</span>
                 </div>
                 <div className="flex justify-between text-[10px]">
                   <span className="text-white/40">Damage</span>
-                  <span className="text-red-400">{TOWER_ATTACK_DAMAGE} per shot</span>
+                  <span className="text-red-400">{Math.round(TOWER_ATTACK_DAMAGE * (1 + (bLevel - 1) * 0.5))} per shot</span>
                 </div>
               </div>
             )}

@@ -7,6 +7,7 @@ interface DmgNumber {
   screenY: number
   amount: number
   born: number
+  crit: boolean
 }
 
 let nextId = 0
@@ -26,7 +27,7 @@ export function DamageNumbers() {
 
   useEffect(() => {
     const onDmg = (e: Event) => {
-      const { x, y, z, amount } = (e as CustomEvent<{ x: number; y: number; z: number; amount: number }>).detail
+      const { x, y, z, amount, crit = false } = (e as CustomEvent<{ x: number; y: number; z: number; amount: number; crit?: boolean }>).detail
       const cam = window.__camera
       if (!cam) return
 
@@ -36,7 +37,7 @@ export function DamageNumbers() {
       const screenX = ((vec.x + 1) / 2) * window.innerWidth
       const screenY = ((-vec.y + 1) / 2) * window.innerHeight
 
-      const entry: DmgNumber = { id: nextId++, screenX, screenY, amount, born: performance.now() }
+      const entry: DmgNumber = { id: nextId++, screenX, screenY, amount, born: performance.now(), crit }
       setNums(prev => [...prev, entry])
     }
 
@@ -74,10 +75,10 @@ export function DamageNumbers() {
               top: n.screenY - floatY,
               transform: 'translate(-50%, -50%)',
               opacity,
-              color: '#ff4444',
+              color: n.crit ? '#ff8800' : '#ff4444',
               fontFamily: 'monospace',
               fontWeight: 'bold',
-              fontSize: '13px',
+              fontSize: n.crit ? '16px' : '13px',
               textShadow: '0 0 4px #000, 0 1px 2px #000',
               whiteSpace: 'nowrap',
               userSelect: 'none',

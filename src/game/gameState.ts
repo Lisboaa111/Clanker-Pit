@@ -49,6 +49,7 @@ export function initGameState(scene: THREE.Scene): GameState {
     buildings: [th0, th1],
     resources,
     projectiles: [],
+    lootPiles: [],
     playerResources: [
       { gold: 300, lumber: 150 },
       { gold: 300, lumber: 150 },

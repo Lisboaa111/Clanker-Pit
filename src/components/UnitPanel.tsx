@@ -148,6 +148,27 @@ function UnitCard({ worker: w }: { worker: SelectedWorkerInfo }) {
         </div>
       </div>
 
+      {/* Level + XP */}
+      <div className="mb-1">
+        <div className="flex items-center justify-between text-[9px] text-white/40 mb-0.5">
+          <span>
+            {w.level === 3 ? '★★★' : w.level === 2 ? '★★☆' : '★☆☆'} Lv {w.level}
+          </span>
+          {w.maxXp > 0
+            ? <span>{w.xp}/{w.maxXp} XP</span>
+            : <span className="text-yellow-400">MAX</span>
+          }
+        </div>
+        {w.maxXp > 0 && (
+          <div className="w-full h-1 bg-white/10 rounded overflow-hidden">
+            <div
+              className="h-full bg-yellow-400 rounded transition-all"
+              style={{ width: `${Math.min(100, (w.xp / w.maxXp) * 100)}%` }}
+            />
+          </div>
+        )}
+      </div>
+
       {/* State */}
       <div className={`text-xs font-bold font-mono flex items-center gap-1 ${STATE_COLORS[w.state]}`}>
         <span>{STATE_ICONS[w.state]}</span>

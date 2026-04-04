@@ -7,6 +7,7 @@ import {
   PLAYER_COLORS, HP_BAR_WIDTH,
   TOWN_HALL_HP_BAR_WIDTH, BARRACKS_HP_BAR_WIDTH, FARM_HP_BAR_WIDTH, TOWER_HP_BAR_WIDTH,
 } from '../game/constants'
+import { ResourceType } from '../game/types'
 
 // ── Shared geometries ─────────────────────────────────────────────────────────
 const workerGeo       = new THREE.BoxGeometry(WORKER_SIZE, WORKER_SIZE, WORKER_SIZE)
@@ -108,6 +109,17 @@ export function makeCarryIndicator(): THREE.Mesh {
   m.position.y = WORKER_SIZE + 0.15
   m.visible = false
   return m
+}
+
+// ── Level indicator ───────────────────────────────────────────────────────────
+export function makeLevelIndicator(level: number): THREE.Mesh | null {
+  if (level <= 1) return null
+  const geo = new THREE.BoxGeometry(0.12, 0.12, 0.12)
+  const color = level === 2 ? 0xcccccc : 0xffcc00  // silver for L2, gold for L3
+  const mat = new THREE.MeshBasicMaterial({ color })
+  const mesh = new THREE.Mesh(geo, mat)
+  mesh.position.set(0.2, WORKER_SIZE + 0.42, 0)
+  return mesh
 }
 
 // ── Unit HP bar ───────────────────────────────────────────────────────────────
@@ -289,6 +301,16 @@ const projMat = new THREE.MeshBasicMaterial({ color: 0xffee44 })
 
 export function makeProjectileMesh(): THREE.Mesh {
   const mesh = new THREE.Mesh(projGeo, projMat.clone())
+  return mesh
+}
+
+// ── Loot pile ─────────────────────────────────────────────────────────────────
+export function makeLootPileMesh(type: ResourceType): THREE.Mesh {
+  const geo = new THREE.SphereGeometry(0.18, 6, 6)
+  const color = type === ResourceType.GOLD ? 0xffd700 : 0x8B4513
+  const mat = new THREE.MeshLambertMaterial({ color })
+  const mesh = new THREE.Mesh(geo, mat)
+  mesh.position.y = 0.18
   return mesh
 }
 

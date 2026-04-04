@@ -5,6 +5,8 @@ import { updateHealthBarFill } from '../../three/meshes'
 import { damageBuilding } from './building'
 import { TILE_SIZE, DEATH_ANIM_DURATION, HP_REGEN_DELAY_TICKS } from '../constants'
 import { WorkerState } from '../types'
+import { grantXp } from './worker'
+import { createLootPile } from './loot'
 
 let uid = 0
 
@@ -15,6 +17,7 @@ export function createProjectile(req: ProjectileRequest, scene: THREE.Scene): Pr
   return {
     id: `proj_${uid++}`,
     fromPlayerId: req.fromPlayerId,
+    fromWorkerId: req.fromWorkerId,
     x: req.fromX, y: req.fromY, z: req.fromZ,
     targetId: req.targetId,
     targetBuildingId: req.targetBuildingId,
@@ -90,11 +93,21 @@ export function updateProjectiles(
           if (target.hp <= 0) {
             target.dead = true
             target.deathAnimTimer = DEATH_ANIM_DURATION
+            // Drop loot if target was carrying resources
+            if (target.carryAmount > 0 && target.carryType !== null) {
+              const pile = createLootPile(target.x, target.z, target.carryType, target.carryAmount, state.tick, scene)
+              state.lootPiles.push(pile)
+            }
+            // Grant XP to the shooting unit
+            if (p.fromWorkerId) {
+              const shooter = state.workers.find(w => w.id === p.fromWorkerId && !w.dead)
+              if (shooter) grantXp(shooter, target, scene)
+            }
           }
 
           // Floating damage number
           window.dispatchEvent(new CustomEvent('dmg-number', {
-            detail: { x: tx, y: ty + 0.4, z: tz, amount: p.damage }
+            detail: { x: tx, y: ty + 0.4, z: tz, amount: p.damage, crit: false }
           }))
         }
       } else if (p.targetBuildingId) {

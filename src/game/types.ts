@@ -32,6 +32,17 @@ export interface ResourceNode {
   depleted: boolean
 }
 
+export interface LootPile {
+  id: string
+  x: number
+  z: number
+  type: ResourceType
+  amount: number
+  mesh: THREE.Mesh
+  spawnTick: number
+  rotation: number
+}
+
 // ── Buildings ─────────────────────────────────────────────────────────────────
 export const enum BuildingType {
   TOWN_HALL = 'town_hall',
@@ -70,6 +81,10 @@ export interface Building {
   builderId: string | null  // worker ID currently building
   // Tower
   attackCooldown: number
+  level: number
+  upgrading: boolean
+  upgradeProgress: number
+  upgradeTime: number
 }
 
 // ── Units (Workers / Footmen / Archers) ───────────────────────────────────────
@@ -121,6 +136,10 @@ export interface Worker {
   // death animation
   deathAnimTimer: number    // > 0: playing death shrink anim
   dead: boolean
+  xp: number
+  level: number
+  levelMesh: THREE.Mesh | null
+  attackCount: number
   // three.js
   mesh: THREE.Mesh
   selectionRing: THREE.Mesh
@@ -140,6 +159,7 @@ export interface ProjectileRequest {
   damage: number
   speed: number
   fromPlayerId: number
+  fromWorkerId: string | null
 }
 
 export interface Projectile {
@@ -154,6 +174,7 @@ export interface Projectile {
   speed: number
   mesh: THREE.Mesh
   done: boolean
+  fromWorkerId: string | null
 }
 
 // ── Game State ────────────────────────────────────────────────────────────────
@@ -168,6 +189,7 @@ export interface GameState {
   buildings: Building[]
   resources: ResourceNode[]
   projectiles: Projectile[]
+  lootPiles: LootPile[]
   playerResources: [Resources, Resources]
   playerSupply: [number, number]
   playerSupplyMax: [number, number]
@@ -183,8 +205,9 @@ export const enum CommandType {
   GATHER_RESOURCE  = 'GATHER_RESOURCE',
   ATTACK_UNIT      = 'ATTACK_UNIT',
   ATTACK_BUILDING  = 'ATTACK_BUILDING',
-  ATTACK_MOVE      = 'ATTACK_MOVE',
-  BUILD            = 'BUILD',
+  ATTACK_MOVE        = 'ATTACK_MOVE',
+  BUILD              = 'BUILD',
+  UPGRADE_BUILDING   = 'UPGRADE_BUILDING',
 }
 
 export interface MoveCommand {
@@ -227,6 +250,11 @@ export interface BuildCommand {
   tileZ: number
 }
 
+export interface UpgradeBuildingCommand {
+  type: CommandType.UPGRADE_BUILDING
+  buildingId: string
+}
+
 export type GameCommand =
   | MoveCommand
   | GatherCommand
@@ -234,6 +262,7 @@ export type GameCommand =
   | AttackBuildingCommand
   | AttackMoveCommand
   | BuildCommand
+  | UpgradeBuildingCommand
 
 // ── HUD ───────────────────────────────────────────────────────────────────────
 export interface BuildingInfo {
@@ -245,6 +274,9 @@ export interface BuildingInfo {
   trainingQueue: TrainingQueueItem[]
   underConstruction: boolean
   buildProgress: number
+  level: number
+  upgrading: boolean
+  upgradeProgress: number
 }
 
 export interface HUDUpdate {
@@ -278,4 +310,7 @@ export interface SelectedWorkerInfo {
   pathLength: number
   hp: number
   maxHp: number
+  xp: number
+  level: number
+  maxXp: number
 }

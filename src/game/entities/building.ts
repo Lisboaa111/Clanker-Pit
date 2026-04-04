@@ -335,6 +335,7 @@ export function updateBuilding(
             damage: towerDamage,
             speed: 16,
             fromPlayerId: building.playerId,
+            fromWorkerId: null,
           },
         }
       }

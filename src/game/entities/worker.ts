@@ -111,7 +111,7 @@ export function createUnit(unitType: UnitType, tileX: number, tileZ: number, pla
 // ── Commands ──────────────────────────────────────────────────────────────────
 
 export function applyCommand(worker: Worker, cmd: GameCommand, state: GameState, scene: THREE.Scene) {
-  if (!cmd.workerIds.includes(worker.id)) return
+  if (!('workerIds' in cmd) || !cmd.workerIds.includes(worker.id)) return
 
   if (cmd.type === CommandType.MOVE_TO_TILE || cmd.type === CommandType.ATTACK_MOVE) {
     const isAttackMove = cmd.type === CommandType.ATTACK_MOVE

@@ -118,7 +118,8 @@ function makeOwnershipFlag(playerId: number, poleH: number, offsetX = 0, offsetZ
     flagGeo,
     new THREE.MeshBasicMaterial({ color: PLAYER_COLORS[playerId], side: THREE.DoubleSide }),
   )
-  // Small point light in team colour  const light = new THREE.PointLight(PLAYER_COLORS[playerId], 1.6, 9)
+  // Small point light in team colour
+  const light = new THREE.PointLight(PLAYER_COLORS[playerId], 1.6, 9)
   light.position.y = poleH * 0.7
   group.add(pole, flag, light)
   group.position.set(offsetX, 0, offsetZ)

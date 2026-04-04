@@ -197,6 +197,7 @@ export interface GameState {
   currentPlayerId: number
   tick: number
   paused: boolean
+  pendingAgentCommands: Array<{ playerId: number; command: GameCommand }>
 }
 
 // ── Input Commands ─────────────────────────────────────────────────────────────

@@ -153,22 +153,48 @@ export function serializeState(state: GameState, playerId: number): object {
   if (myRes.gold >= TOWER_GOLD && myRes.lumber >= TOWER_LUMBER)
     canAffordNow.push(`tower (cost:${TOWER_GOLD}g,${TOWER_LUMBER}l) — BUILD with a worker`)
 
-  // Derive the single most urgent action
+  // Base position for building placement hints
+  const baseTx = townHall?.tileX ?? (playerId === 0 ? 8 : 40)
+  const baseTz = townHall?.tileZ ?? (playerId === 0 ? 8 : 40)
+  // Suggest building spots offset from town hall (picked to avoid collision)
+  const buildSpot1 = { tx: baseTx + 4, tz: baseTz + 2 }
+  const buildSpot2 = { tx: baseTx + 4, tz: baseTz + 5 }
+  const buildSpot3 = { tx: baseTx - 4, tz: baseTz + 2 }
+
+  // Build the urgent action — GATHER always fires first (workers idle = wasted economy)
   let urgentAction = 'none'
   if (enemyDefenseless && enemyTH) {
+    // Highest priority: enemy is completely open — go win
     const allIds = myAllAlive.map(u => u.id)
-    urgentAction = `⚠️ ATTACK WIN: Enemy has ZERO combat units and ZERO towers! Send ALL your units to ATTACK_BUILDING the enemy town_hall id="${enemyTH.id}" at (${enemyTH.tx},${enemyTH.tz}). Use unitIds: ${JSON.stringify(allIds)}`
-  } else if (supplyFree <= 0) {
-    urgentAction = `⚠️ SUPPLY CAPPED (${state.playerSupply[playerId]}/${state.playerSupplyMax[playerId]}): Train nothing until you BUILD a farm! Cost: ${FARM_GOLD}g + ${FARM_LUMBER}l`
-  } else if (idleWorkerIds.length > 0 && resources.length > 0) {
-    const closest = resources[0]
-    urgentAction = `⚠️ ${idleWorkerIds.length} IDLE WORKERS [${idleWorkerIds.join(',')}]: Send them to gather from resource "${closest.id}" (${closest.type} at ${closest.tx},${closest.tz}) NOW!`
-  } else if (!hasBarracks && myRes.gold >= BARRACKS_GOLD && myRes.lumber >= BARRACKS_LUMBER && idleWorkerIds.length > 0) {
-    urgentAction = `⚠️ NO BARRACKS: Build one immediately! Worker ${idleWorkerIds[0]} is idle. Place near your base.`
+    urgentAction = `⚠️ WIN NOW: Enemy has ZERO combat units and ZERO towers! Send ALL units to ATTACK_BUILDING enemy town_hall id="${enemyTH.id}" at (${enemyTH.tx},${enemyTH.tz}). unitIds: ${JSON.stringify(allIds)}`
+
+  } else if (idleWorkerIds.length > 0) {
+    // Second priority: idle workers are wasted economy — always gather first
+    const parts: string[] = []
+    if (resources.length > 0) {
+      const g = resources.find(r => r.type === 'gold') ?? resources[0]
+      const l = resources.find(r => r.type === 'lumber') ?? resources[0]
+      parts.push(`GATHER: send workers [${idleWorkerIds.join(',')}] to mine gold from "${g.id}" at (${g.tx},${g.tz})`)
+      if (l !== g) parts.push(`or lumber from "${l.id}" at (${l.tx},${l.tz})`)
+    }
+    if (supplyFree <= 0) {
+      parts.push(`ALSO: supply CAPPED (${state.playerSupply[playerId]}/${state.playerSupplyMax[playerId]}) — BUILD farm at (${buildSpot1.tx},${buildSpot1.tz}) to increase cap`)
+    } else if (!hasBarracks && myRes.gold >= BARRACKS_GOLD && myRes.lumber >= BARRACKS_LUMBER) {
+      parts.push(`ALSO: no barracks — BUILD barracks at (${buildSpot1.tx},${buildSpot1.tz})`)
+    }
+    urgentAction = `⚠️ ${idleWorkerIds.length} IDLE WORKERS — ${parts.join('. ')}`
+
+  } else if (supplyFree <= 0 && myRes.gold >= FARM_GOLD && myRes.lumber >= FARM_LUMBER) {
+    urgentAction = `⚠️ SUPPLY CAPPED (${state.playerSupply[playerId]}/${state.playerSupplyMax[playerId]}): BUILD farm at (${buildSpot2.tx},${buildSpot2.tz}) — use any idle worker`
+
+  } else if (!hasBarracks && myRes.gold >= BARRACKS_GOLD && myRes.lumber >= BARRACKS_LUMBER) {
+    urgentAction = `⚠️ NO BARRACKS: BUILD barracks at (${buildSpot1.tx},${buildSpot1.tz}) to train combat units`
+
   } else if (idleCombatIds.length >= 2 && enemyTH) {
-    urgentAction = `⚠️ ${idleCombatIds.length} IDLE COMBAT UNITS [${idleCombatIds.join(',')}]: attack-move them toward enemy base at (${enemyTH.tx},${enemyTH.tz})!`
+    urgentAction = `⚠️ ${idleCombatIds.length} IDLE COMBAT UNITS [${idleCombatIds.join(',')}]: ATTACK_MOVE toward enemy base at (${enemyTH.tx},${enemyTH.tz})`
+
   } else if (canAffordNow.length > 0) {
-    urgentAction = `Can train/build right now: ${canAffordNow[0]}`
+    urgentAction = `Ready: ${canAffordNow[0]}`
   }
 
   return {
@@ -179,6 +205,8 @@ export function serializeState(state: GameState, playerId: number): object {
     supply:     state.playerSupply[playerId],
     supplyMax:  state.playerSupplyMax[playerId],
     supplyFree,
+    myBaseCenter: { tx: baseTx, tz: baseTz },
+    suggestedBuildSpots: [buildSpot1, buildSpot2, buildSpot3],
     myUnits,
     myBuildings,
     enemyUnits,
@@ -191,7 +219,7 @@ export function serializeState(state: GameState, playerId: number): object {
       idleCombatIds,
       hasBarracks,
       enemyDefenseless,
-      myCombatCount:   myCombat.length,
+      myCombatCount:    myCombat.length,
       enemyCombatCount: enemyCombat.length,
       enemyTowerCount:  enemyTowers.length,
       canAffordNow,

@@ -3,8 +3,17 @@ import { MAP_WIDTH, MAP_HEIGHT, TILE_SIZE } from '../game/constants'
 
 export function createScene(): THREE.Scene {
   const scene = new THREE.Scene()
-  scene.background = new THREE.Color(0x87ceeb)  // sky blue
-  scene.fog = new THREE.Fog(0x87ceeb, 60, 160)
+  scene.background = new THREE.Color(0x87ceeb)  // fallback until sky texture loads
+  scene.fog = new THREE.Fog(0xc8d8e8, 60, 160)
+
+  // Load equirectangular sky panorama as background + environment
+  const loader = new THREE.TextureLoader()
+  loader.load('/sky_11_2k.png', (tex) => {
+    tex.mapping    = THREE.EquirectangularReflectionMapping
+    tex.colorSpace = THREE.SRGBColorSpace
+    scene.background  = tex
+    scene.environment = tex   // HDRI ambient bounce lighting
+  })
 
   // Ambient light
   const ambient = new THREE.AmbientLight(0xffffff, 0.65)

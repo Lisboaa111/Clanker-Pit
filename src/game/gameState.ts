@@ -60,5 +60,6 @@ export function initGameState(scene: THREE.Scene): GameState {
     currentPlayerId: 0,
     tick: 0,
     paused: false,
+    pendingAgentCommands: [],
   }
 }

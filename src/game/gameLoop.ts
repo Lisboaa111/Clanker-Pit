@@ -185,7 +185,7 @@ export function createGameLoop(
     }
 
     // Agent commands (explicit playerId per command)
-    while (state.pendingAgentCommands.length > 0) {
+    while ((state.pendingAgentCommands ?? []).length > 0) {
       const { playerId, command } = state.pendingAgentCommands.shift()!
       processCmd(command, playerId)
     }

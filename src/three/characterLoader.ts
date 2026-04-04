@@ -44,12 +44,21 @@ export async function loadCharacterAssets(): Promise<CharacterAssets> {
     t.flipY = false
   }
 
+  // Each animation FBX contains multiple stacks: a template, a "Targeting Pose"
+  // (static T-pose reference), and the actual animation. Find the real clip by name.
+  const findClip = (fbx: THREE.Group, keyword: string): THREE.AnimationClip => {
+    const hit = fbx.animations.find(a => a.name.toLowerCase().includes(keyword.toLowerCase()))
+    if (hit) return hit
+    // Fallback: pick the longest clip (the actual animation is longest)
+    return fbx.animations.reduce((a, b) => (b.duration > a.duration ? b : a), fbx.animations[0])
+  }
+
   _cache = {
     template: model,
     clips: {
-      idle: idleFbx.animations[0],
-      run:  runFbx.animations[0],
-      jump: jumpFbx.animations[0],
+      idle: findClip(idleFbx, 'idle'),
+      run:  findClip(runFbx,  'run'),
+      jump: findClip(jumpFbx, 'jump'),
     },
     textures: { survivorFemaleA: tFA, survivorMaleB: tMB, zombieA: tZA, zombieC: tZC },
   }

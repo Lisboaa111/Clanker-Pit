@@ -9,7 +9,9 @@ import { createInputSystem } from '../game/input'
 import { AgentRunner } from '../agent/runner'
 import { AgentConfig, HUMAN_PLAYER, PlayerMode } from '../agent/agentTypes'
 import { loadCharacterAssets } from '../three/characterLoader'
-import { setCharacterAssets } from '../three/meshes'
+import { loadSurvivalKitAssets } from '../three/survivalKitLoader'
+import { setCharacterAssets, setSurvivalKitAssets } from '../three/meshes'
+import { scatterMapDecoration } from '../three/mapDecoration'
 
 interface Props {
   p0Mode: PlayerMode
@@ -28,16 +30,23 @@ export function GameView({ p0Mode, p1Mode, apiKey }: Props) {
     let cleanupFns: Array<() => void> = []
 
     ;(async () => {
-      // Load Kenney FBX characters before spawning any units
-      const assets = await loadCharacterAssets()
+      // Load both asset packs in parallel before spawning anything
+      const [charAssets, skAssets] = await Promise.all([
+        loadCharacterAssets(),
+        loadSurvivalKitAssets(),
+      ])
       if (stopped) return
-      setCharacterAssets(assets)
+      setCharacterAssets(charAssets)
+      setSurvivalKitAssets(skAssets)
       setAssetsLoading(false)
 
       const scene    = createScene()
       const renderer = createRenderer(canvas)
       const camCtrl  = createCamera(window.innerWidth / window.innerHeight)
       const state    = initGameState(scene)
+
+      // Scatter environment decoration (rocks, grass, campfires)
+      scatterMapDecoration(scene, state.map, skAssets)
 
       // Expose for minimap, damage numbers & debugging
       ;(window as any).__gameState = state

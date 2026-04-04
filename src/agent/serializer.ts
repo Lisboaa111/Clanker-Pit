@@ -161,41 +161,52 @@ export function serializeState(state: GameState, playerId: number): object {
   const buildSpot2 = { tx: baseTx + 4, tz: baseTz + 5 }
   const buildSpot3 = { tx: baseTx - 4, tz: baseTz + 2 }
 
-  // Build the urgent action — GATHER always fires first (workers idle = wasted economy)
-  let urgentAction = 'none'
+  // ── Derived advantage metrics ─────────────────────────────────────────────
+  const myTotalPower   = myCombat.length
+  const enemyTotalPower = enemyCombat.length + enemyTowers.length
+  const dominantAdvantage = myTotalPower >= 2 && myTotalPower > enemyTotalPower + 1
+  const crushingAdvantage = myTotalPower >= 1 && enemyAllAlive.length <= 1  // enemy has ≤1 unit total
+
+  // ── Build composite urgentAction (ALL concerns combined, not exclusive) ────
+  const urgentParts: string[] = []
+
+  // #1 — Absolute win conditions (enemy open or nearly dead)
   if (enemyDefenseless && enemyTH) {
-    // Highest priority: enemy is completely open — go win
     const allIds = myAllAlive.map(u => u.id)
-    urgentAction = `⚠️ WIN NOW: Enemy has ZERO combat units and ZERO towers! Send ALL units to ATTACK_BUILDING enemy town_hall id="${enemyTH.id}" at (${enemyTH.tx},${enemyTH.tz}). unitIds: ${JSON.stringify(allIds)}`
-
-  } else if (idleWorkerIds.length > 0) {
-    // Second priority: idle workers are wasted economy — always gather first
-    const parts: string[] = []
-    if (resources.length > 0) {
-      const g = resources.find(r => r.type === 'gold') ?? resources[0]
-      const l = resources.find(r => r.type === 'lumber') ?? resources[0]
-      parts.push(`GATHER: send workers [${idleWorkerIds.join(',')}] to mine gold from "${g.id}" at (${g.tx},${g.tz})`)
-      if (l !== g) parts.push(`or lumber from "${l.id}" at (${l.tx},${l.tz})`)
-    }
-    if (supplyFree <= 0) {
-      parts.push(`ALSO: supply CAPPED (${state.playerSupply[playerId]}/${state.playerSupplyMax[playerId]}) — BUILD farm at (${buildSpot1.tx},${buildSpot1.tz}) to increase cap`)
-    } else if (!hasBarracks && myRes.gold >= BARRACKS_GOLD && myRes.lumber >= BARRACKS_LUMBER) {
-      parts.push(`ALSO: no barracks — BUILD barracks at (${buildSpot1.tx},${buildSpot1.tz})`)
-    }
-    urgentAction = `⚠️ ${idleWorkerIds.length} IDLE WORKERS — ${parts.join('. ')}`
-
-  } else if (supplyFree <= 0 && myRes.gold >= FARM_GOLD && myRes.lumber >= FARM_LUMBER) {
-    urgentAction = `⚠️ SUPPLY CAPPED (${state.playerSupply[playerId]}/${state.playerSupplyMax[playerId]}): BUILD farm at (${buildSpot2.tx},${buildSpot2.tz}) — use any idle worker`
-
-  } else if (!hasBarracks && myRes.gold >= BARRACKS_GOLD && myRes.lumber >= BARRACKS_LUMBER) {
-    urgentAction = `⚠️ NO BARRACKS: BUILD barracks at (${buildSpot1.tx},${buildSpot1.tz}) to train combat units`
-
-  } else if (idleCombatIds.length >= 2 && enemyTH) {
-    urgentAction = `⚠️ ${idleCombatIds.length} IDLE COMBAT UNITS [${idleCombatIds.join(',')}]: ATTACK_MOVE toward enemy base at (${enemyTH.tx},${enemyTH.tz})`
-
-  } else if (canAffordNow.length > 0) {
-    urgentAction = `Ready: ${canAffordNow[0]}`
+    urgentParts.push(`🏆 WIN NOW: Enemy has ZERO combat units+towers! ATTACK_BUILDING town_hall id="${enemyTH.id}" at (${enemyTH.tx},${enemyTH.tz}) with ALL units unitIds:${JSON.stringify(allIds)}`)
+  } else if (crushingAdvantage && enemyTH) {
+    const combatIds = [...myCombat.map(u => u.id), ...myWorkersOnly.slice(0,2).map(u => u.id)]
+    urgentParts.push(`🏆 FINISH THEM: Enemy has only ${enemyAllAlive.length} unit(s) left! Send ALL fighters to ATTACK_BUILDING town_hall id="${enemyTH.id}" at (${enemyTH.tx},${enemyTH.tz}) unitIds:${JSON.stringify(combatIds)}`)
+  } else if (dominantAdvantage && enemyTH) {
+    const combatIds = myCombat.map(u => u.id)
+    urgentParts.push(`⚔️ PRESS ADVANTAGE: You have ${myTotalPower} fighters vs enemy ${enemyTotalPower} — ATTACK_BUILDING town_hall id="${enemyTH.id}" at (${enemyTH.tx},${enemyTH.tz}) with fighters unitIds:${JSON.stringify(combatIds)}`)
   }
+
+  // #2 — Idle combat units (ALWAYS direct them regardless of other concerns)
+  if (!enemyDefenseless && !dominantAdvantage && !crushingAdvantage && idleCombatIds.length >= 1 && enemyTH) {
+    urgentParts.push(`⚔️ ${idleCombatIds.length} IDLE FIGHTERS [${idleCombatIds.join(',')}] — ATTACK_MOVE toward enemy base (${enemyTH.tx},${enemyTH.tz})`)
+  }
+
+  // #3 — Idle workers (economy — always gather regardless of other concerns)
+  if (idleWorkerIds.length > 0 && resources.length > 0) {
+    const g = resources.find(r => r.type === 'gold') ?? resources[0]
+    const l = resources.find(r => r.type === 'lumber') ?? resources[0]
+    urgentParts.push(`💰 ${idleWorkerIds.length} IDLE WORKERS [${idleWorkerIds.join(',')}] — GATHER gold from "${g.id}" at (${g.tx},${g.tz})${l !== g ? ` or lumber from "${l.id}" at (${l.tx},${l.tz})` : ''}`)
+  }
+
+  // #4 — Economy / building concerns (secondary)
+  if (supplyFree <= 0 && myRes.gold >= FARM_GOLD && myRes.lumber >= FARM_LUMBER) {
+    urgentParts.push(`🏗️ Supply CAPPED (${state.playerSupply[playerId]}/${state.playerSupplyMax[playerId]}) — BUILD farm at (${buildSpot1.tx},${buildSpot1.tz})`)
+  } else if (!hasBarracks && myRes.gold >= BARRACKS_GOLD && myRes.lumber >= BARRACKS_LUMBER) {
+    urgentParts.push(`🏗️ No barracks — BUILD barracks at (${buildSpot1.tx},${buildSpot1.tz}) with an idle worker`)
+  }
+
+  // #5 — Training (only if supply is free)
+  if (canAffordNow.length > 0 && supplyFree > 0) {
+    urgentParts.push(`🎓 ${canAffordNow[0]}`)
+  }
+
+  const urgentAction = urgentParts.length > 0 ? urgentParts.join(' | ') : 'none'
 
   return {
     tick:       state.tick,
@@ -219,8 +230,11 @@ export function serializeState(state: GameState, playerId: number): object {
       idleCombatIds,
       hasBarracks,
       enemyDefenseless,
+      dominantAdvantage,
+      crushingAdvantage,
       myCombatCount:    myCombat.length,
       enemyCombatCount: enemyCombat.length,
+      enemyTotalUnits:  enemyAllAlive.length,
       enemyTowerCount:  enemyTowers.length,
       canAffordNow,
     },

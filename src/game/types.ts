@@ -208,6 +208,7 @@ export const enum CommandType {
   ATTACK_MOVE        = 'ATTACK_MOVE',
   BUILD              = 'BUILD',
   UPGRADE_BUILDING   = 'UPGRADE_BUILDING',
+  TRAIN_UNIT         = 'TRAIN_UNIT',
 }
 
 export interface MoveCommand {
@@ -255,6 +256,12 @@ export interface UpgradeBuildingCommand {
   buildingId: string
 }
 
+export interface TrainUnitCommand {
+  type: CommandType.TRAIN_UNIT
+  buildingId: string
+  unitType: UnitType
+}
+
 export type GameCommand =
   | MoveCommand
   | GatherCommand
@@ -263,6 +270,7 @@ export type GameCommand =
   | AttackMoveCommand
   | BuildCommand
   | UpgradeBuildingCommand
+  | TrainUnitCommand
 
 // ── HUD ───────────────────────────────────────────────────────────────────────
 export interface BuildingInfo {

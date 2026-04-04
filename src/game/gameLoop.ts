@@ -125,66 +125,69 @@ export function createGameLoop(
     cameraCtrl.update(dt, input.keys)
 
     // ── Process commands ──────────────────────────────────────────────────
-    while (input.commandQueue.length > 0) {
-      const cmd = input.commandQueue.shift()!
-
+    const processCmd = (cmd: import('./types').GameCommand, playerId: number) => {
       if (cmd.type === CommandType.BUILD) {
-        // Handle BUILD separately: create scaffold, deduct resources
-        const playerId = state.currentPlayerId
         const pr = state.playerResources[playerId]
         const cost = BUILD_COSTS[cmd.buildingType]
-
-        if (pr.gold < cost.gold || pr.lumber < cost.lumber) continue
-
-        // Validate tile (must be grass, not already occupied)
+        if (pr.gold < cost.gold || pr.lumber < cost.lumber) return
         const tile = state.map[cmd.tileZ]?.[cmd.tileX]
-        if (!tile || tile.type !== TileType.GRASS) continue
-        const occupied = state.buildings.some(
-          b => b.tileX === cmd.tileX && b.tileZ === cmd.tileZ && !b.destroyed
-        )
-        if (occupied) continue
-
-        // Deduct cost, create scaffold building
+        if (!tile || tile.type !== TileType.GRASS) return
+        const occupied = state.buildings.some(b => b.tileX === cmd.tileX && b.tileZ === cmd.tileZ && !b.destroyed)
+        if (occupied) return
         pr.gold   -= cost.gold
         pr.lumber -= cost.lumber
         const newBuilding = createBuilding(cmd.buildingType, cmd.tileX, cmd.tileZ, playerId, scene, true)
         state.buildings.push(newBuilding)
+        state.workers.filter(w => w.playerId === playerId && !w.dead).forEach(w => applyCommand(w, cmd, state, scene))
 
-        // Send workers to build it
-        state.workers
-          .filter(w => w.playerId === playerId && !w.dead)
-          .forEach(w => applyCommand(w, cmd, state, scene))
-
-      } else if (
-        cmd.type === CommandType.MOVE_TO_TILE &&
-        cmd.workerIds.length > 1
-      ) {
-        // Formation movement for multi-select
+      } else if (cmd.type === CommandType.MOVE_TO_TILE && cmd.workerIds.length > 1) {
         applyMoveCommandFormation(state.workers, cmd.workerIds, cmd.tileX, cmd.tileZ, false, state, scene)
 
-      } else if (
-        cmd.type === CommandType.ATTACK_MOVE &&
-        cmd.workerIds.length > 1
-      ) {
-        // Formation movement in attack-move mode
+      } else if (cmd.type === CommandType.ATTACK_MOVE && cmd.workerIds.length > 1) {
         applyMoveCommandFormation(state.workers, cmd.workerIds, cmd.tileX, cmd.tileZ, true, state, scene)
 
       } else if (cmd.type === CommandType.UPGRADE_BUILDING) {
         const building = state.buildings.find(
-          b => b.id === (cmd as any).buildingId &&
-          !b.destroyed && !b.upgrading && !b.underConstruction
+          b => b.id === (cmd as any).buildingId && !b.destroyed && !b.upgrading && !b.underConstruction
         )
-        if (building && building.playerId === state.currentPlayerId) {
-          const pr = state.playerResources[state.currentPlayerId]
+        if (building && building.playerId === playerId) {
+          const pr = state.playerResources[playerId]
           if (pr) startBuildingUpgrade(building, pr)
         }
 
+      } else if (cmd.type === CommandType.TRAIN_UNIT) {
+        // Agent-issued train command
+        const building = state.buildings.find(b => b.id === (cmd as any).buildingId && !b.destroyed && !b.underConstruction)
+        if (!building || building.playerId !== playerId) return
+        const unitType = (cmd as any).unitType as UnitType
+        if (state.playerSupply[playerId] >= state.playerSupplyMax[playerId]) return
+        const pr = state.playerResources[playerId]
+        let costGold = 0, costLumber = 0, duration = 0
+        switch (unitType) {
+          case UnitType.WORKER:  costGold = TRAIN_WORKER_GOLD;  costLumber = TRAIN_WORKER_LUMBER;  duration = TRAIN_WORKER_TIME;  break
+          case UnitType.FOOTMAN: costGold = TRAIN_FOOTMAN_GOLD; costLumber = TRAIN_FOOTMAN_LUMBER; duration = TRAIN_FOOTMAN_TIME; break
+          case UnitType.ARCHER:  costGold = TRAIN_ARCHER_GOLD;  costLumber = TRAIN_ARCHER_LUMBER;  duration = TRAIN_ARCHER_TIME;  break
+        }
+        if (pr.gold < costGold || pr.lumber < costLumber) return
+        if (unitType === UnitType.WORKER && building.type !== BuildingType.TOWN_HALL) return
+        if ((unitType === UnitType.FOOTMAN || unitType === UnitType.ARCHER) && building.type !== BuildingType.BARRACKS) return
+        pr.gold -= costGold; pr.lumber -= costLumber
+        building.trainingQueue.push({ unitType, timer: duration, duration })
+
       } else {
-        // All other commands: apply to all matching workers
-        state.workers
-          .filter(w => w.playerId === state.currentPlayerId && !w.dead)
-          .forEach(w => applyCommand(w, cmd, state, scene))
+        state.workers.filter(w => w.playerId === playerId && !w.dead).forEach(w => applyCommand(w, cmd, state, scene))
       }
+    }
+
+    // Human player commands
+    while (input.commandQueue.length > 0) {
+      processCmd(input.commandQueue.shift()!, state.currentPlayerId)
+    }
+
+    // Agent commands (explicit playerId per command)
+    while (state.pendingAgentCommands.length > 0) {
+      const { playerId, command } = state.pendingAgentCommands.shift()!
+      processCmd(command, playerId)
     }
 
     // ── Update workers (collect projectile requests) ───────────────────────

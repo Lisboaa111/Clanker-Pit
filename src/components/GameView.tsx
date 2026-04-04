@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { createScene } from '../three/scene'
 import { createCamera } from '../three/camera'
@@ -6,9 +6,18 @@ import { createRenderer } from '../three/renderer'
 import { initGameState } from '../game/gameState'
 import { createGameLoop } from '../game/gameLoop'
 import { createInputSystem } from '../game/input'
+import { AgentRunner } from '../agent/runner'
+import { AgentConfig, HUMAN_PLAYER, PlayerMode } from '../agent/agentTypes'
 
-export function GameView() {
+interface Props {
+  p0Mode: PlayerMode
+  p1Mode: PlayerMode
+  apiKey: string
+}
+
+export function GameView({ p0Mode, p1Mode, apiKey }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const [agentStatus, setAgentStatus] = useState<Record<number, string>>({})
 
   useEffect(() => {
     const canvas = canvasRef.current!
@@ -30,13 +39,47 @@ export function GameView() {
       return targets
     }
 
-    // Pass scene so setWorkerSelected can add/remove path lines correctly
+    // For agent players, disable mouse input control for their player
+    const agentPlayerIds = new Set<number>()
+    if (p0Mode !== HUMAN_PLAYER) agentPlayerIds.add(0)
+    if (p1Mode !== HUMAN_PLAYER) agentPlayerIds.add(1)
+
     const input = createInputSystem(canvas, camCtrl.camera, scene, () => state, getPickTargets)
 
     canvas.addEventListener('wheel', (e) => { e.preventDefault(); camCtrl.onWheel(e) }, { passive: false })
 
     const loop = createGameLoop(scene, renderer, camCtrl, state, input)
     loop.start()
+
+    // Start agent runners
+    const runners: AgentRunner[] = []
+
+    const modes: [number, PlayerMode][] = [[0, p0Mode], [1, p1Mode]]
+    for (const [pid, mode] of modes) {
+      if (mode === HUMAN_PLAYER) continue
+      const cfg = mode as AgentConfig
+      const runner = new AgentRunner(cfg, pid, apiKey)
+      runner.start(state)
+      runners.push(runner)
+    }
+
+    // Listen for agent thinking events to update UI
+    const onAgentThinking = (e: Event) => {
+      const { playerId, reasoning, agentName } = (e as CustomEvent<{
+        playerId: number; reasoning: string; agentName: string
+      }>).detail
+      setAgentStatus(prev => ({ ...prev, [playerId]: `${agentName}: ${reasoning}` }))
+    }
+    window.addEventListener('agent-thinking', onAgentThinking)
+
+    // If both players are agents, keep currentPlayerId = 0 (doesn't matter, both controlled by runners)
+    if (p0Mode === HUMAN_PLAYER && p1Mode !== HUMAN_PLAYER) {
+      state.currentPlayerId = 0  // human is p0
+    } else if (p0Mode !== HUMAN_PLAYER && p1Mode === HUMAN_PLAYER) {
+      state.currentPlayerId = 1  // human is p1
+    } else if (p0Mode !== HUMAN_PLAYER && p1Mode !== HUMAN_PLAYER) {
+      state.currentPlayerId = 0  // both agents, doesn't matter
+    }
 
     const onResize = () => {
       renderer.setSize(window.innerWidth, window.innerHeight)
@@ -46,14 +89,34 @@ export function GameView() {
     window.addEventListener('resize', onResize)
 
     return () => {
+      runners.forEach(r => r.stop())
       loop.stop()
       input.destroy()
       window.removeEventListener('resize', onResize)
+      window.removeEventListener('agent-thinking', onAgentThinking)
       renderer.dispose()
       ;(window as any).__gameState = null
       ;(window as any).__camera = null
     }
-  }, [])
+  }, []) // intentionally no deps — game init is one-shot
 
-  return <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
+  return (
+    <>
+      <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" />
+
+      {/* Agent status overlay */}
+      {Object.entries(agentStatus).map(([pid, text]) => (
+        <div
+          key={pid}
+          className={[
+            'absolute z-10 max-w-xs text-[10px] font-mono px-2 py-1 rounded',
+            'bg-black/50 backdrop-blur-sm border border-white/10 text-white/60',
+            Number(pid) === 0 ? 'top-12 left-2' : 'top-12 right-2 text-right',
+          ].join(' ')}
+        >
+          <span className="text-purple-400">🤖 </span>{text}
+        </div>
+      ))}
+    </>
+  )
 }
